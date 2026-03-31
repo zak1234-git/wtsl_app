@@ -365,7 +365,6 @@ void* wtsl_core_qos_switch(void* phandle, void *data, unsigned int size, UserCon
 	
 	cJSON* type = cJSON_GetObjectItemCaseSensitive(root,"enabled");
 	if(type != NULL && cJSON_IsBool(type)) {
-		g_state.enabled = type->valueint;
 		ret = qos_toggle_switch(g_state.enabled);
 		if (ret != 0) {
 			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]data paraser error",__FUNCTION__,__LINE__);

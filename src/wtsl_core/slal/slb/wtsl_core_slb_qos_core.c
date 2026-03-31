@@ -76,7 +76,7 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
     const char *dev = (j_dev && cJSON_IsString(j_dev)) ? j_dev->valuestring : g_state.default_device;
 
     // 基础命令： tc <action> <type> dev <dev>
-    snprintf(cmd, sizeof(cmd), "tc %s %s dev %s", action, obj_type, dev);
+    snprintf(cmd, sizeof(cmd), "tc %s %s dev %s", obj_type, action, dev);
 
     // 公共参数
     cJSON *j_parent = cJSON_GetObjectItemCaseSensitive(params, "parent");
