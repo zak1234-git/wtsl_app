@@ -190,7 +190,9 @@ typedef void * (WTSLNodeCallBack)(void* pNode,void *data,unsigned int size,UserC
     X(get_sle_conninfo, PERMISSION_WRITE, wtsl_core_sle_conninfo,35)\
     X(set_sle_basicinfo, PERMISSION_WRITE, wtsl_core_set_sle_basicinfo,36)\
     X(do_lowlatency_test, PERMISSION_WRITE, wtsl_core_do_lowlatency,37)\
-    X(set_sle_announce_id, PERMISSION_WRITE, wtsl_core_set_announce_id,38)
+    X(set_sle_announce_id, PERMISSION_WRITE, wtsl_core_set_announce_id,38)\
+    X(qos_get_status, PERMISSION_READ, wtsl_core_qos_get_status,39)\
+    X(qos_switch, PERMISSION_WRITE, wtsl_core_qos_switch, 40)
     
 // ------------------------------
 // 使用X宏生成接口表结构体

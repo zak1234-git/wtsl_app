@@ -1,6 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <time.h>
 #include <sys/stat.h>
 #include "wtsl_user_manager.h"
@@ -9,6 +10,7 @@
 #include "wtsl_log_manager.h"
 #include "wtsl_core_node_list.h"
 #include "wtsl_core_api.h"
+#include "wtsl_core_slb_qos_core.h"
 #include "cJSON.h"
 #include "cJSON_Utils.h"
 #include "wtsl_core_dataparser.h"
@@ -220,6 +222,30 @@ void* wtsl_core_get_node_basicinfo(void* phandle, void *data, unsigned int size,
     return data; // 返回指向节点信息的指针
 }
 
+void* wtsl_core_qos_get_status(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+	cJSON *resp = cJSON_CreateObject();
+
+	cJSON_AddItemToObject(resp, "enabled", cJSON_CreateBool(g_state.enabled));
+	cJSON_AddItemToObject(resp, "snapshot_count", cJSON_CreateNumber(g_state.snapshot_count));
+	cJSON_AddItemToObject(resp, "device", cJSON_CreateString(g_state.default_device));
+
+	const char *qos_info = cJSON_Print(resp);
+	WTSL_LOG_DEBUG(MODULE_NAME,"[%s][%d],response json:%s",__FUNCTION__,__LINE__,qos_info);
+	size_t info_len = strlen(qos_info);
+	if (size < info_len + 1) {
+		WTSL_LOG_ERROR(MODULE_NAME,"[%s][%d] size is too samall",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	strncpy(data, qos_info, size);
+	return data;
+}
+
 //
 void* wtsl_core_get_node_advinfo(void* phandle, void *data, unsigned int size, UserContext *ctx){
     (void)ctx;
@@ -313,6 +339,41 @@ void* wtsl_core_set_node_basicinfo(void* phandle, void *data, unsigned int size,
     }
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],ret:%d",__FUNCTION__,__LINE__,ret);
 	return (void *)"setnode_success";
+}
+
+//
+void* wtsl_core_qos_switch(void* phandle, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	int ret = -1;
+	WTSL_LOG_INFO(MODULE_NAME, "switch node qos on/off...");
+    WTSLNode* pNode = (WTSLNode* )phandle;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+    WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
+
+	cJSON *root =cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not a vaild json data",__func__,__LINE__);
+		return NULL;
+	}
+	
+	cJSON* type = cJSON_GetObjectItemCaseSensitive(root,"enabled");
+	if(type != NULL && cJSON_IsBool(type)) {
+		g_state.enabled = type->valueint;
+		ret = qos_toggle_switch(g_state.enabled);
+		if (ret != 0) {
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]data paraser error",__FUNCTION__,__LINE__);
+			return NULL;
+		}
+	}
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],ret:%d",__FUNCTION__,__LINE__,ret);
+	return (void *)"qos_switch_success";
 }
 
 

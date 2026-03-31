@@ -9,12 +9,14 @@
 #include "wtsl_core_dataparser.h"
 #include "wtsl_core_slb_interface.h"
 #include "wtsl_cfg_manager.h"
+#include "wtsl_core_slb_qos_core.h"
 const char *js_cfg_path="/home/wt/www/config.json";
 extern int wtsl_http_main();
 char g_is_run = 1;
 extern int create_splink_state_watcher();
 extern int wtsl_gw_port;
 extern SPLINK_INFO global_node_info;
+extern QosGlobalState g_state;
 
 #define MODULE_NAME "wt_core"
 
@@ -94,6 +96,9 @@ int wtsl_core_main() {
 #ifdef HTTP_RESTFUL_API_SUPPORT	
 	wtsl_http_main();
 #endif
+
+	// init Qos system manager
+	qos_init_state(NET_BRIDGE_NAME);
 
 //与js同步ip通信地址
 sync_ip_to_js_cfg(js_cfg_path,param);

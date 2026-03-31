@@ -85,6 +85,10 @@ void* wtsl_core_get_sle_basicinfo(void* ph, void *data, unsigned int size, UserC
 void* wtsl_core_do_lowlatency(void* ph, void *data, unsigned int size, UserContext *ctx);
 
 void* wtsl_core_set_announce_id(void* ph, void *data, unsigned int size, UserContext *ctx);
+
+void* wtsl_core_qos_get_status(void* ph, void *data, unsigned int size, UserContext *ctx);
+
+void* wtsl_core_qos_switch(void* ph, void *data, unsigned int size, UserContext *ctx);
 // ------------------------------
 // X宏定义：集中管理所有函数配置
 // ------------------------------

@@ -336,6 +336,20 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 				return NULL;
 			}
 			return (void *)ret;			
+		}else if (strncmp(func_str, "qos", 3)==0){
+			if(g_url_list->size < 5)
+				return NULL;
+
+			char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
+			if (strncmp(func_way_str, "status", 6) == 0){
+				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get system qos real status",__FUNCTION__,__LINE__);
+				void *ret = CALL_INTERFACE(p_node,qos_get_status,recv_bss,sizeof(recv_bss),&g_user_ctx);
+				if(ret == NULL){
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes system qos real status error",__FUNCTION__,__LINE__);
+					return NULL;
+				}
+				return (void *)recv_bss;
+			}
 		}else{
 			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
 			return NULL;
@@ -593,6 +607,20 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 			void *ret = CALL_INTERFACE(p_node,do_upgrade,(void *)args,size,&g_user_ctx);
 			if(ret == NULL){
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]upgrade firmware package error",__FUNCTION__,__LINE__);
+				return NULL;
+			}
+			return (void *)ret;
+		}
+	} else if (strncmp(func_str, "qos", 3) == 0) {
+		if (g_url_list->size < 5)
+			return NULL;
+		
+		char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
+		if (strncmp(func_way_str, "switch", 6) == 0) {
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos switch",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,qos_switch,(void *)args,size,&g_user_ctx);
+			if (ret == NULL) {
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos switch error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
 			return (void *)ret;
