@@ -336,10 +336,23 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 				return NULL;
 			}
 			return (void *)ret;			
-		}else if (strncmp(func_str, "qos", 3)==0){
-			if(g_url_list->size < 5)
-				return NULL;
-
+		}else{
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
+			return NULL;
+		}
+	} else if (g_url_list->size >= 6) {
+		WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d]do get node func info",__FUNCTION__,__LINE__);
+		char *id_str = ((UrlData *)list_get(g_url_list,3))->str;
+		char *func_str = ((UrlData *)list_get(g_url_list,4))->str;
+		WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]get id_str:%s,func:%s",__FUNCTION__,__LINE__,id_str,func_str);
+		WTSLNodeList *nd = get_wtsl_core_node_list();
+		p_node = find_wtsl_node_by_id(nd,atoi(id_str));
+		if(p_node == NULL){
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no node found for id:%s",__FUNCTION__,__LINE__,id_str);
+			return NULL;
+		}
+		WTSL_LOG_DEBUG(MODULE_NAME,"pnode:0x%x,node[%d]:(name:%s,mac:%s,ip:%s)",p_node,p_node->id,p_node->info.basic_info.name,p_node->info.basic_info.mac,p_node->info.basic_info.ip);
+		if (strncmp(func_str, "qos", 3)==0){
 			char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
 			if (strncmp(func_way_str, "status", 6) == 0){
 				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get system qos real status",__FUNCTION__,__LINE__);
