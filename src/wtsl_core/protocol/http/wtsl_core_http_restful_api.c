@@ -624,20 +624,6 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 			}
 			return (void *)ret;
 		}
-	} else if (strncmp(func_str, "qos", 3) == 0) {
-		if (g_url_list->size < 5)
-			return NULL;
-		
-		char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-		if (strncmp(func_way_str, "switch", 6) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos switch",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_switch,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos switch error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		}
 	}
 	if(g_url_list->size == 6)
 		{
@@ -660,11 +646,24 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 					return NULL;
 				}
 				return (void *)ret;
+			}else if (strncmp(func_str, "qos", 3) == 0) {
+				if (g_url_list->size < 5)
+					return NULL;
+				
+				char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
+				if (strncmp(func_way_str, "switch", 6) == 0) {
+					WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos switch",__FUNCTION__,__LINE__);
+					void *ret = CALL_INTERFACE(p_node,qos_switch,(void *)args,size,&g_user_ctx);
+					if (ret == NULL) {
+						WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos switch error",__FUNCTION__,__LINE__);
+						return NULL;
+					}
+					return (void *)ret;
+				}
 			}else{
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
 				return NULL;
 			}		
-	
 	
 		}
 	
