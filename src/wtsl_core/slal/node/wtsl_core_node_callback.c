@@ -363,17 +363,728 @@ void* wtsl_core_qos_switch(void* phandle, void *data, unsigned int size, UserCon
 		return NULL;
 	}
 	
-	cJSON* type = cJSON_GetObjectItemCaseSensitive(root,"enabled");
-	if(type != NULL && cJSON_IsBool(type)) {
-		bool temp_type = cJSON_IsTrue(type) ? true : false;
-		ret = qos_toggle_switch(temp_type);
+	cJSON* j_enabled = cJSON_GetObjectItemCaseSensitive(root,"enabled");
+	if(j_enabled != NULL && cJSON_IsBool(j_enabled)) {
+		// 如果当前状态 == 目标状态，无需操作
+		if (g_state.enabled == cJSON_IsTrue(j_enabled)) {
+			cJSON_Delete(root);
+			cJSON *resp = cJSON_CreateObject();
+			cJSON_AddStringToObject(resp, "message", "QoS already in target state");
+			cJSON_AddBoolToObject(resp, "enabled", g_state.enabled);
+			char *json_str = cJSON_Print(resp);
+			cJSON_Delete(resp);
+			return json_str;
+		}
+		ret = qos_toggle_switch(cJSON_IsTrue(j_enabled));
 		if (ret != 0) {
-			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]data paraser error",__FUNCTION__,__LINE__);
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] qos_toggle_switch error",__FUNCTION__,__LINE__);
+			cJSON_Delete(root);
 			return NULL;
 		}
 	}
-	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],ret:%d",__FUNCTION__,__LINE__,ret);
-	return (void *)"qos_switch_success";
+	cJSON_Delete(root);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],ret:%d,enabled:%d",__FUNCTION__,__LINE__,ret,g_state.enabled);
+
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "message", g_state.enabled ? "QoS enabled" : "QoS disabled");
+	cJSON_AddBoolToObject(resp, "enabled", g_state.enabled);
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// ==========================================
+// QoS 扩展 API 回调函数
+// ==========================================
+
+// 获取规则列表
+void* wtsl_core_qos_list_rules(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+
+	// 可选 filter_type 参数
+	const char *filter_type = NULL;
+	if(data != NULL && size > 0){
+		cJSON *root = cJSON_Parse((const char*)data);
+		if(root){
+			cJSON *j_type = cJSON_GetObjectItemCaseSensitive(root, "type");
+			if(j_type && cJSON_IsString(j_type)){
+				filter_type = j_type->valuestring;
+			}
+			cJSON_Delete(root);
+		}
+	}
+
+	int ret = qos_list_rules_json(data, size, filter_type);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] qos_list_rules_json error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// 添加规则
+void* wtsl_core_qos_add_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	// 必填字段
+	cJSON *j_type = cJSON_GetObjectItemCaseSensitive(root, "type");
+	cJSON *j_name = cJSON_GetObjectItemCaseSensitive(root, "name");
+	cJSON *j_action = cJSON_GetObjectItemCaseSensitive(root, "action");
+	if(!j_type || !j_name || !j_action ||
+	   !cJSON_IsString(j_type) || !cJSON_IsString(j_name) || !cJSON_IsString(j_action)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing required fields: type, name, action",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	QosRuleEntry entry;
+	memset(&entry, 0, sizeof(entry));
+
+	// 生成 rule_id
+	qos_gen_rule_id(entry.rule_id, sizeof(entry.rule_id));
+
+	// 名称
+	strncpy(entry.name, j_name->valuestring, QOS_RULE_NAME_LEN - 1);
+
+	// 类型
+	if(strcmp(j_type->valuestring, "tc") == 0){
+		entry.type = QOS_TYPE_TC;
+	} else if(strcmp(j_type->valuestring, "iptables") == 0){
+		entry.type = QOS_TYPE_IPTABLES;
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] invalid type: %s",__FUNCTION__,__LINE__, j_type->valuestring);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	// action
+	strncpy(entry.action, j_action->valuestring, sizeof(entry.action) - 1);
+
+	// 保存 params JSON（用于后续重建命令）
+	entry.params_json = cJSON_PrintUnformatted(root);
+
+	// 执行底层命令
+	int ret = -1;
+	if(entry.type == QOS_TYPE_TC){
+		cJSON *j_obj_type = cJSON_GetObjectItemCaseSensitive(root, "obj_type");
+		cJSON *j_params = cJSON_GetObjectItemCaseSensitive(root, "params");
+		if(!j_obj_type || !j_params || !cJSON_IsObject(j_params)){
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] tc rule needs obj_type and params",__FUNCTION__,__LINE__);
+			cJSON_Delete(root);
+			return NULL;
+		}
+		strncpy(entry.obj_type, j_obj_type->valuestring, sizeof(entry.obj_type) - 1);
+		ret = tc_handle_request(entry.action, entry.obj_type, j_params);
+	} else {
+		cJSON *j_chain = cJSON_GetObjectItemCaseSensitive(root, "chain");
+		cJSON *j_params = cJSON_GetObjectItemCaseSensitive(root, "params");
+		if(!j_chain || !j_params || !cJSON_IsObject(j_params)){
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] iptables rule needs chain and params",__FUNCTION__,__LINE__);
+			cJSON_Delete(root);
+			return NULL;
+		}
+		strncpy(entry.chain, j_chain->valuestring, sizeof(entry.chain) - 1);
+		ret = iptables_handle_request(entry.action, entry.chain, j_params);
+	}
+
+	cJSON_Delete(root);
+
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] command execution failed",__FUNCTION__,__LINE__);
+		if(entry.params_json) free(entry.params_json);
+		return NULL;
+	}
+
+	// 添加到规则管理表
+	qos_add_rule_entry(&entry);
+
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "status", "success");
+	cJSON_AddStringToObject(resp, "rule_id", entry.rule_id);
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 获取单条规则
+void* wtsl_core_qos_get_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_rule_id = cJSON_GetObjectItemCaseSensitive(root, "rule_id");
+	if(!j_rule_id || !cJSON_IsString(j_rule_id)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing rule_id",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = qos_get_rule_json(j_rule_id->valuestring, data, size);
+	cJSON_Delete(root);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] rule not found: %s",__FUNCTION__,__LINE__, j_rule_id->valuestring);
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "Rule not found");
+		char *json_str = cJSON_Print(resp);
+		cJSON_Delete(resp);
+		return json_str;
+	}
+	return data;
+}
+
+// 删除规则
+void* wtsl_core_qos_delete_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_rule_id = cJSON_GetObjectItemCaseSensitive(root, "rule_id");
+	if(!j_rule_id || !cJSON_IsString(j_rule_id)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing rule_id",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = qos_delete_rule(j_rule_id->valuestring);
+	cJSON_Delete(root);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] rule not found: %s",__FUNCTION__,__LINE__, j_rule_id->valuestring);
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "Rule not found");
+		char *json_str = cJSON_Print(resp);
+		cJSON_Delete(resp);
+		return json_str;
+	}
+
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "status", "success");
+	cJSON_AddStringToObject(resp, "rule_id", j_rule_id->valuestring);
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 清除所有规则
+void* wtsl_core_qos_clear_rules(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+	(void)data;
+	(void)size;
+
+	int ret = qos_clear_all_rules();
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] clear rules error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "status", "success");
+	cJSON_AddStringToObject(resp, "message", "All rules cleared");
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// TC show
+void* wtsl_core_qos_tc_show(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+
+	int ret = tc_show_all(data, size);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] tc_show_all error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// TC 统计（带 -s 参数）
+void* wtsl_core_qos_tc_stats(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+
+	int ret = tc_show_stats(data, size);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] tc_show_stats error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// TC action
+void* wtsl_core_qos_tc_action(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_action = cJSON_GetObjectItemCaseSensitive(root, "action");
+	cJSON *j_obj_type = cJSON_GetObjectItemCaseSensitive(root, "obj_type");
+	cJSON *j_params = cJSON_GetObjectItemCaseSensitive(root, "params");
+
+	if(!j_action || !j_obj_type || !cJSON_IsString(j_action) || !cJSON_IsString(j_obj_type)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing action/obj_type",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	if(!j_params || !cJSON_IsObject(j_params)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing params",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = tc_handle_request(j_action->valuestring, j_obj_type->valuestring, j_params);
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "tc command execution failed");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// iptables action
+void* wtsl_core_qos_iptables_action(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_action = cJSON_GetObjectItemCaseSensitive(root, "action");
+	cJSON *j_chain = cJSON_GetObjectItemCaseSensitive(root, "chain");
+	cJSON *j_params = cJSON_GetObjectItemCaseSensitive(root, "params");
+
+	if(!j_action || !j_chain || !cJSON_IsString(j_action) || !cJSON_IsString(j_chain)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing action/chain",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	if(!j_params || !cJSON_IsObject(j_params)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing params",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = iptables_handle_request(j_action->valuestring, j_chain->valuestring, j_params);
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "iptables command execution failed");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// ==========================================
+// QoS 场景 API 回调函数
+// ==========================================
+
+// ==========================================
+// T 节点访问控制（防火墙）回调函数
+// ==========================================
+
+// 获取访问控制开关状态
+void* wtsl_core_acl_get_enabled(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+
+	int ret = acl_get_enabled_json(data, size);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] acl_get_enabled_json error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// 设置访问控制开关
+void* wtsl_core_acl_set_enabled(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+	if(!j_enabled || !cJSON_IsBool(j_enabled)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing enabled field",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = acl_set_enabled(cJSON_IsTrue(j_enabled));
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+		cJSON_AddBoolToObject(resp, "enabled", cJSON_IsTrue(j_enabled));
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "ACL set enabled failed");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 获取访问控制规则列表
+void* wtsl_core_acl_list_rules(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+
+	int ret = acl_list_rules_json(data, size);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] acl_list_rules_json error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// 添加访问控制规则
+void* wtsl_core_acl_add_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	char rule_id[32] = {0};
+	int ret = acl_add_rule(root, rule_id, sizeof(rule_id));
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+		cJSON_AddStringToObject(resp, "rule_id", rule_id);
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "ACL add rule failed");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 获取单条访问控制规则
+void* wtsl_core_acl_get_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+	(void)data;
+	(void)size;
+
+	// rule_id 从 URL 传入，这里简化处理
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "status", "error");
+	cJSON_AddStringToObject(resp, "message", "Use /acl/rules/list to get all rules");
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 删除访问控制规则
+void* wtsl_core_acl_delete_rule(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_rule_id = cJSON_GetObjectItemCaseSensitive(root, "rule_id");
+	if(!j_rule_id || !cJSON_IsString(j_rule_id)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing rule_id",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	int ret = acl_delete_rule(j_rule_id->valuestring);
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+		cJSON_AddStringToObject(resp, "rule_id", j_rule_id->valuestring);
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "message", "Rule not found");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// 清除所有访问控制规则
+void* wtsl_core_acl_clear_rules(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+	(void)data;
+	(void)size;
+
+	int ret = acl_clear_all_rules();
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] acl_clear_all_rules error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *resp = cJSON_CreateObject();
+	cJSON_AddStringToObject(resp, "status", "success");
+	cJSON_AddStringToObject(resp, "message", "All ACL rules cleared");
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
+}
+
+// ==========================================
+// QoS 场景 API 回调函数
+// ==========================================
+void* wtsl_core_qos_scene_list(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	(void)ph;
+	(void)data;
+
+	int ret = qos_scene_list_json(data, size);
+	if(ret != 0){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] qos_scene_list_json error",__FUNCTION__,__LINE__);
+		return NULL;
+	}
+	return data;
+}
+
+// 应用场景
+void* wtsl_core_qos_scene_apply(void* ph, void *data, unsigned int size, UserContext *ctx){
+	(void)ctx;
+	WTSLNode *pNode = (WTSLNode *)ph;
+    if(pNode == NULL){
+        WTSL_LOG_ERROR(MODULE_NAME, "Node pointer is NULL");
+        return NULL;
+    }
+    if(data == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+
+	cJSON *root = cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not valid json",__func__,__LINE__);
+		return NULL;
+	}
+
+	cJSON *j_scene = cJSON_GetObjectItemCaseSensitive(root, "scene");
+	if(!j_scene || !cJSON_IsString(j_scene)){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] missing scene field",__FUNCTION__,__LINE__);
+		cJSON_Delete(root);
+		return NULL;
+	}
+
+	const char *scene_name = j_scene->valuestring;
+	int ret = -1;
+	char err_detail[128] = {0};
+
+	// 场景 1：带宽限速
+	if(strcmp(scene_name, "bandwidth_limit") == 0){
+		cJSON *j_cid = cJSON_GetObjectItemCaseSensitive(root, "class_id");
+		cJSON *j_port = cJSON_GetObjectItemCaseSensitive(root, "port");
+		cJSON *j_proto = cJSON_GetObjectItemCaseSensitive(root, "protocol");
+		cJSON *j_rate = cJSON_GetObjectItemCaseSensitive(root, "rate");
+		cJSON *j_ceil = cJSON_GetObjectItemCaseSensitive(root, "ceil");
+		if(!j_cid || !j_port || !j_rate || !j_ceil ||
+		   !cJSON_IsNumber(j_cid) || !cJSON_IsNumber(j_port) || !cJSON_IsString(j_rate) || !cJSON_IsString(j_ceil)){
+			snprintf(err_detail, sizeof(err_detail), "bandwidth_limit needs class_id(int), port(int), rate(string), ceil(string)");
+		} else {
+			const char *proto = j_proto ? j_proto->valuestring : "tcp";
+			ret = qos_scene_bandwidth_limit(j_cid->valueint, j_port->valueint, proto, j_rate->valuestring, j_ceil->valuestring);
+		}
+	}
+	// 场景 2：流量阻断
+	else if(strcmp(scene_name, "traffic_block") == 0){
+		cJSON *j_port = cJSON_GetObjectItemCaseSensitive(root, "port");
+		if(!j_port || !cJSON_IsNumber(j_port)){
+			snprintf(err_detail, sizeof(err_detail), "traffic_block needs port(int)");
+		} else {
+			cJSON *j_proto = cJSON_GetObjectItemCaseSensitive(root, "protocol");
+			ret = qos_scene_traffic_block(j_port->valueint, j_proto ? j_proto->valuestring : "tcp");
+		}
+	}
+	// 场景 3：流量放行
+	else if(strcmp(scene_name, "traffic_allow") == 0){
+		cJSON *j_port = cJSON_GetObjectItemCaseSensitive(root, "port");
+		if(!j_port || !cJSON_IsNumber(j_port)){
+			snprintf(err_detail, sizeof(err_detail), "traffic_allow needs port(int)");
+		} else {
+			cJSON *j_proto = cJSON_GetObjectItemCaseSensitive(root, "protocol");
+			ret = qos_scene_traffic_allow(j_port->valueint, j_proto ? j_proto->valuestring : "tcp");
+		}
+	}
+	// 场景 4：设备限速
+	else if(strcmp(scene_name, "device_limit") == 0){
+		cJSON *j_ip = cJSON_GetObjectItemCaseSensitive(root, "ip");
+		cJSON *j_rate = cJSON_GetObjectItemCaseSensitive(root, "rate");
+		cJSON *j_ceil = cJSON_GetObjectItemCaseSensitive(root, "ceil");
+		if(!j_ip || !j_rate || !j_ceil || !cJSON_IsString(j_ip) || !cJSON_IsString(j_rate) || !cJSON_IsString(j_ceil)){
+			snprintf(err_detail, sizeof(err_detail), "device_limit needs ip(string), rate(string), ceil(string)");
+		} else {
+			ret = qos_scene_device_limit(j_ip->valuestring, j_rate->valuestring, j_ceil->valuestring);
+		}
+	}
+	// 场景 5：游戏加速
+	else if(strcmp(scene_name, "gaming_boost") == 0){
+		cJSON *j_port = cJSON_GetObjectItemCaseSensitive(root, "port");
+		int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 0;
+		ret = qos_scene_gaming_boost(port);
+	}
+	// 场景 6：视频流畅
+	else if(strcmp(scene_name, "video_smooth") == 0){
+		ret = qos_scene_video_smooth();
+	}
+	// 场景 7：IoT 设备保障
+	else if(strcmp(scene_name, "iot_qos") == 0){
+		cJSON *j_ip = cJSON_GetObjectItemCaseSensitive(root, "ip");
+		cJSON *j_rate = cJSON_GetObjectItemCaseSensitive(root, "rate");
+		if(!j_ip || !j_rate || !cJSON_IsString(j_ip) || !cJSON_IsString(j_rate)){
+			snprintf(err_detail, sizeof(err_detail), "iot_qos needs ip(string), rate(string)");
+		} else {
+			ret = qos_scene_iot_qos(j_ip->valuestring, j_rate->valuestring);
+		}
+	}
+	// 场景 8：网页浏览保障
+	else if(strcmp(scene_name, "web_browse") == 0){
+		ret = qos_scene_web_browse();
+	}
+	else {
+		snprintf(err_detail, sizeof(err_detail), "unknown scene: %s", scene_name);
+	}
+
+	cJSON_Delete(root);
+
+	cJSON *resp = cJSON_CreateObject();
+	if(ret == 0){
+		cJSON_AddStringToObject(resp, "status", "success");
+		cJSON_AddStringToObject(resp, "scene", scene_name);
+		cJSON_AddStringToObject(resp, "message", "scene applied successfully");
+	} else {
+		cJSON_AddStringToObject(resp, "status", "error");
+		cJSON_AddStringToObject(resp, "scene", scene_name);
+		cJSON_AddStringToObject(resp, "message", err_detail[0] ? err_detail : "scene execution failed");
+	}
+	char *json_str = cJSON_Print(resp);
+	cJSON_Delete(resp);
+	return json_str;
 }
 
 
@@ -1285,7 +1996,7 @@ void* wtsl_core_do_throughput(void* ph, void *data, unsigned int size, UserConte
 	snprintf(cmd, sizeof(cmd), "iwpriv %s cfg \"rx_thread_switch on\"", NET_VAP_NAME);
 	system(cmd);
 
-	snprintf(cmd, sizeof(cmd), "iwpriv wt_vap0 alg \"set_mcs_bound 00:00:00:00:00:00 6 30\"");
+	snprintf(cmd, sizeof(cmd), "iwpriv %s alg \"set_mcs_bound 00:00:00:00:00:00 6 30\"", NET_VAP_NAME);
 	system(cmd);
 
 	slb_set_tx_power(NET_VAP_NAME, 250);
@@ -2332,5 +3043,48 @@ void* wtsl_core_set_announce_id(void* ph, void *data, unsigned int size, UserCon
 	return (void*)"success";
 }
 
+void* wtsl_core_config_vap0_mac(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	(void)ctx;
+	WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
+	
+	cJSON *root =cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not a vaild json data",__func__,__LINE__);
+		return NULL;
+	}
+	
+	cJSON* cjson_vap0_mac = cJSON_GetObjectItem(root, "vap0_mac");
+	if(cjson_vap0_mac != NULL){
+		char vap0_mac[18] = {0};
+		char cmd[128] = {0};
+		strcpy(vap0_mac, cjson_vap0_mac->valuestring);
+		system("nanddump -n -l 4096 /dev/mtd10 | strings > /tmp/enva.txt");
+		int ret = system("cat /tmp/enva.txt | grep \"vap0_mac\"");
+		if(ret == 0)
+		{
+			//找到vap0_mac,选择更新vap0_mac
+			snprintf(cmd, sizeof(cmd), "cat /tmp/enva.txt | strings | sed 's/^vap0_mac=.*/vap0_mac=%s/' > /tmp/enva_temp.txt", vap0_mac);
+			printf("cmd:%s\n", cmd);
+			system(cmd);
+			system("mv /tmp/enva_temp.txt /tmp/enva.txt");			
+		}
+		else
+		{
+			//未设置vap0_mac，在尾部追加vap0_mac
+			snprintf(cmd, sizeof(cmd), "echo vap0_mac=%s >> /tmp/enva.txt", vap0_mac);
+			system(cmd);
+		}
+		system("flash_erase /dev/mtd10 0 0");
+		usleep(500000);
+		system("nandwrite -p /dev/mtd10 /tmp/enva.txt");
+		
+	}		
+	
+	cJSON_Delete(root);
+	return (void*)"success";
+}
 
 
