@@ -10,6 +10,8 @@
 #include "wtsl_core_slb_interface.h"
 #include "wtsl_cfg_manager.h"
 #include "wtsl_core_slb_qos_core.h"
+#include "wtsl_core_slb_acl_core.h"
+#include "wtsl_core_slb_init.h"
 const char *js_cfg_path="/home/wt/www/config.json";
 extern int wtsl_http_main();
 char g_is_run = 1;
@@ -92,13 +94,18 @@ int wtsl_core_main() {
 	WTSL_LOG_INFO(MODULE_NAME, "wtsl_core vercode:%d, commitid:%s",vercode,verstr);
 	WTSL_LOG_INFO(MODULE_NAME, " bw: %d, type: %d, tfc_bw: %d,name:%s", param->bw,param->type,param->tfc_bw, param->name); //打印所有参数
 
+	// 初始化 SLB 模块（iptables 环境准备）
+	slb_module_init();
 
 #ifdef HTTP_RESTFUL_API_SUPPORT	
 	wtsl_http_main();
 #endif
 
-	// init Qos system manager
+	// init QoS system manager
 	qos_init_state(NET_BRIDGE_NAME);
+	
+	// init ACL system manager
+	acl_init_state(NET_BRIDGE_NAME);
 
 //与js同步ip通信地址
 sync_ip_to_js_cfg(js_cfg_path,param);

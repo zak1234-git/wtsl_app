@@ -195,25 +195,11 @@ typedef void * (WTSLNodeCallBack)(void* pNode,void *data,unsigned int size,UserC
     X(set_sle_announce_id, PERMISSION_WRITE, wtsl_core_set_announce_id,38)\
     X(qos_get_status, PERMISSION_READ, wtsl_core_qos_get_status,39)\
     X(qos_switch, PERMISSION_WRITE, wtsl_core_qos_switch, 40)\
-    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 41)\
-    X(qos_list_rules, PERMISSION_READ, wtsl_core_qos_list_rules, 42)\
-    X(qos_add_rule, PERMISSION_WRITE, wtsl_core_qos_add_rule, 43)\
-    X(qos_get_rule, PERMISSION_READ, wtsl_core_qos_get_rule, 44)\
-    X(qos_delete_rule, PERMISSION_WRITE, wtsl_core_qos_delete_rule, 45)\
-    X(qos_clear_rules, PERMISSION_WRITE, wtsl_core_qos_clear_rules, 46)\
-    X(qos_tc_show, PERMISSION_READ, wtsl_core_qos_tc_show, 47)\
-    X(qos_tc_stats, PERMISSION_READ, wtsl_core_qos_tc_stats, 52)\
-    X(qos_tc_action, PERMISSION_WRITE, wtsl_core_qos_tc_action, 48)\
-    X(qos_iptables_action, PERMISSION_WRITE, wtsl_core_qos_iptables_action, 49)\
-    X(qos_scene_list, PERMISSION_READ, wtsl_core_qos_scene_list, 50)\
-    X(qos_scene_apply, PERMISSION_WRITE, wtsl_core_qos_scene_apply, 51)\
-    X(acl_get_enabled, PERMISSION_READ, wtsl_core_acl_get_enabled, 53)\
-    X(acl_set_enabled, PERMISSION_WRITE, wtsl_core_acl_set_enabled, 54)\
-    X(acl_list_rules, PERMISSION_READ, wtsl_core_acl_list_rules, 55)\
-    X(acl_add_rule, PERMISSION_WRITE, wtsl_core_acl_add_rule, 56)\
-    X(acl_get_rule, PERMISSION_READ, wtsl_core_acl_get_rule, 57)\
-    X(acl_delete_rule, PERMISSION_WRITE, wtsl_core_acl_delete_rule, 58)\
-    X(acl_clear_rules, PERMISSION_WRITE, wtsl_core_acl_clear_rules, 59)
+    X(qos_handle_rules, PERMISSION_WRITE, wtsl_core_qos_handle_rules, 41)\
+    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 42)\
+    X(acl_get_status, PERMISSION_READ, wtsl_core_acl_get_status, 43)\
+    X(acl_switch, PERMISSION_WRITE, wtsl_core_acl_switch, 44)\
+    X(acl_handle_rules, PERMISSION_WRITE, wtsl_core_acl_handle_rules, 45)
     
 // ------------------------------
 // 使用X宏生成接口表结构体

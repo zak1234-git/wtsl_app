@@ -362,79 +362,30 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 					return NULL;
 				}
 				return (void *)recv_bss;
-			} else if (strncmp(func_way_str, "rules", 5) == 0){
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos list rules",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,qos_list_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
+			}else if (strncmp(func_way_str, "rules", 5) == 0){
+				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get qos rules",__FUNCTION__,__LINE__);
+				void *ret = CALL_INTERFACE(p_node,qos_handle_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
 				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos list rules error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)recv_bss;
-			} else if (strncmp(func_way_str, "tc", 2) == 0){
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos tc show",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,qos_tc_show,recv_bss,sizeof(recv_bss),&g_user_ctx);
-				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos tc show error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)recv_bss;
-			} else if (strncmp(func_way_str, "stats", 5) == 0){
-				// GET /nodes/{id}/qos/tc/stats — 获取 TC + iptables 统计
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos tc stats",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,qos_tc_stats,recv_bss,sizeof(recv_bss),&g_user_ctx);
-				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos tc stats error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)recv_bss;
-			} else if (strncmp(func_way_str, "acl", 3) == 0) {
-			// GET /nodes/{id}/qos/acl/status — 获取访问控制开关状态
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do get ACL status",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_get_enabled,recv_bss,sizeof(recv_bss),&g_user_ctx);
-			if(ret == NULL){
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get ACL status error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)recv_bss;
-		} else if (strncmp(func_way_str, "acl_rules", 9) == 0) {
-			// GET /nodes/{id}/qos/acl/rules — 获取访问控制规则列表
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do get ACL rules",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_list_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
-			if(ret == NULL){
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get ACL rules error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)recv_bss;
-		} else if (strncmp(func_way_str, "scenes", 6) == 0){
-				// GET /nodes/{id}/qos/scenes — 获取场景列表
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos scene list",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,qos_scene_list,recv_bss,sizeof(recv_bss),&g_user_ctx);
-				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos scene list error",__FUNCTION__,__LINE__);
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes qos rules error",__FUNCTION__,__LINE__);
 					return NULL;
 				}
 				return (void *)recv_bss;
 			}
-		} else if (g_url_list->size >= 7) {
-			// GET /nodes/{id}/qos/rules/{rule_id}
-			char *id_str = ((UrlData *)list_get(g_url_list,3))->str;
-			char *func_str = ((UrlData *)list_get(g_url_list,4))->str;
+		}else if (strncmp(func_str, "acl", 3)==0){
 			char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-			char *rule_id_str = ((UrlData *)list_get(g_url_list,6))->str;
-			WTSLNodeList *nd = get_wtsl_core_node_list();
-			p_node = find_wtsl_node_by_id(nd,atoi(id_str));
-			if(p_node == NULL){
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no node found for id:%s",__FUNCTION__,__LINE__,id_str);
-				return NULL;
-			}
-			if (strncmp(func_str, "qos", 3) == 0 && strncmp(func_way_str, "rules", 5) == 0) {
-				// Build JSON body with rule_id
-				char body_buf[256];
-				snprintf(body_buf, sizeof(body_buf), "{\"rule_id\":\"%s\"}", rule_id_str);
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos get rule: %s",__FUNCTION__,__LINE__,rule_id_str);
-				void *ret = CALL_INTERFACE(p_node,qos_get_rule,body_buf,strlen(body_buf),&g_user_ctx);
+			if (strncmp(func_way_str, "status", 6) == 0){
+				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get acl status",__FUNCTION__,__LINE__);
+				void *ret = CALL_INTERFACE(p_node,acl_get_status,recv_bss,sizeof(recv_bss),&g_user_ctx);
 				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos get rule error",__FUNCTION__,__LINE__);
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes acl status error",__FUNCTION__,__LINE__);
+					return NULL;
+				}
+				return (void *)recv_bss;
+			}else if (strncmp(func_way_str, "rules", 5) == 0){
+				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get acl rules",__FUNCTION__,__LINE__);
+				void *ret = CALL_INTERFACE(p_node,acl_handle_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
+				if(ret == NULL){
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes acl rules error",__FUNCTION__,__LINE__);
 					return NULL;
 				}
 				return (void *)recv_bss;
@@ -721,71 +672,33 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 				return NULL;
 			}
 			return (void *)ret;
-		} else if (strncmp(func_way_str, "rules", 5) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos add rule",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_add_rule,(void *)args,size,&g_user_ctx);
+		}else if (strncmp(func_way_str, "rules", 5) == 0) {
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos rules",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,qos_handle_rules,(void *)args,size,&g_user_ctx);
 			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos add rule error",__FUNCTION__,__LINE__);
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos rules error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
 			return (void *)ret;
-		} else if (strncmp(func_way_str, "clear", 5) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos clear rules",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_clear_rules,(void *)args,size,&g_user_ctx);
+		}
+	} else if (strncmp(func_str, "acl", 3) == 0) {
+		if (g_url_list->size < 5)
+			return NULL;
+		
+		char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
+		if (strncmp(func_way_str, "switch", 6) == 0) {
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set acl switch",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,acl_switch,(void *)args,size,&g_user_ctx);
 			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos clear rules error",__FUNCTION__,__LINE__);
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set acl switch error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
 			return (void *)ret;
-		} else if (strncmp(func_way_str, "tc", 2) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos tc action",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_tc_action,(void *)args,size,&g_user_ctx);
+		}else if (strncmp(func_way_str, "rules", 5) == 0) {
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set acl rules",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,acl_handle_rules,(void *)args,size,&g_user_ctx);
 			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos tc action error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		} else if (strncmp(func_way_str, "iptables", 8) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos iptables action",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_iptables_action,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos iptables action error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		} else if (strncmp(func_way_str, "acl", 3) == 0) {
-			// POST /nodes/{id}/qos/acl/enable — 设置访问控制开关
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set ACL enabled",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_set_enabled,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set ACL enabled error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		} else if (strncmp(func_way_str, "acl_rules", 9) == 0) {
-			// POST /nodes/{id}/qos/acl/rules — 添加访问控制规则
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do ACL add rule",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_add_rule,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do ACL add rule error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		} else if (strncmp(func_way_str, "clear", 5) == 0) {
-			// POST /nodes/{id}/qos/acl/clear — 清除所有访问控制规则
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do ACL clear rules",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_clear_rules,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do ACL clear rules error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		} else if (strncmp(func_way_str, "scenes", 6) == 0) {
-			// POST /nodes/{id}/qos/scenes/apply — 应用场景
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos scene apply",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_scene_apply,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos scene apply error",__FUNCTION__,__LINE__);
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set acl rules error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
 			return (void *)ret;
@@ -815,37 +728,9 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 			}else{
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
 				return NULL;
-			}
-		}
-	else if(g_url_list->size == 7)
-		{
-			// 7-segment URLs: /nodes/{id}/qos/rules/{rule_id}
-			char *id_str = ((UrlData *)list_get(g_url_list,3))->str;
-			char *func_str = ((UrlData *)list_get(g_url_list,4))->str;
-			char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-			char *rule_id_str = ((UrlData *)list_get(g_url_list,6))->str;
-			WTSLNodeList *nd = get_wtsl_core_node_list();
-			p_node = find_wtsl_node_by_id(nd,atoi(id_str));
-			if(p_node == NULL){
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no node found for id:%s",__FUNCTION__,__LINE__,id_str);
-				return NULL;
-			}
-			if (strncmp(func_str, "qos", 3) == 0 && strncmp(func_way_str, "rules", 5) == 0) {
-				// POST /nodes/{id}/qos/rules/{rule_id} → delete rule
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do qos delete rule: %s",__FUNCTION__,__LINE__,rule_id_str);
-				// Build JSON body with rule_id
-				char body_buf[256];
-				snprintf(body_buf, sizeof(body_buf), "{\"rule_id\":\"%s\"}", rule_id_str);
-				void *ret = CALL_INTERFACE(p_node,qos_delete_rule,(void *)body_buf,strlen(body_buf),&g_user_ctx);
-				if (ret == NULL) {
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do qos delete rule error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)ret;
-			}else{
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
-				return NULL;
-			}
+			}		
+	
+	
 		}
 	
 	else{

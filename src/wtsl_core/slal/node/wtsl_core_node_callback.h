@@ -90,43 +90,16 @@ void* wtsl_core_qos_get_status(void* ph, void *data, unsigned int size, UserCont
 
 void* wtsl_core_qos_switch(void* ph, void *data, unsigned int size, UserContext *ctx);
 
-void* wtsl_core_qos_list_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_add_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_get_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_delete_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_clear_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_tc_show(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_tc_stats(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_tc_action(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_iptables_action(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_get_enabled(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_set_enabled(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_list_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_add_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_get_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_delete_rule(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_acl_clear_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_scene_list(void* ph, void *data, unsigned int size, UserContext *ctx);
-
-void* wtsl_core_qos_scene_apply(void* ph, void *data, unsigned int size, UserContext *ctx);
+void* wtsl_core_qos_handle_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
 
 void* wtsl_core_config_vap0_mac(void* ph, void *data, unsigned int size, UserContext *ctx);
+
+// ACL/Firewall callbacks
+void* wtsl_core_acl_get_status(void* ph, void *data, unsigned int size, UserContext *ctx);
+
+void* wtsl_core_acl_switch(void* ph, void *data, unsigned int size, UserContext *ctx);
+
+void* wtsl_core_acl_handle_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
 // ------------------------------
 // X宏定义：集中管理所有函数配置
 // ------------------------------
