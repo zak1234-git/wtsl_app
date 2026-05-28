@@ -78,6 +78,7 @@ GET http://192.168.99.1:8080/api/v1/nodes
 |  GET   | /nodes/{id}/sle_scan         | sle设备扫描                      |      |
 |  GET   | /nodes/{id}/sle_show_bss     | 获取sle设备扫描信息              |      |
 |  GET   | /nodes/{id}/sle_conninfo     | 获取sle设备连接信息              |      |
+|  GET   | /nodes/{id}/sle_trans_config | 获取sle传输配置                  |      |
 |  POST  | /nodes/{id}/stats/traffic    | 获取设备流量信息                 |      |
 |  POST  | /nodes/{id}/secalg           | 获取协商后的安全密钥算法         |      |
 |  POST  | /nodes/{id}/adaptivemcsinfo  | 查询链路当前速率自适应算法模式   |      |
@@ -86,6 +87,7 @@ GET http://192.168.99.1:8080/api/v1/nodes
 |        |                              |                                  |      |
 |  POST  | /nodes/{id}/timesync         | 时间同步                         |      |
 |  POST  | /nodes/{id}/scan             | 扫描                             |      |
+|  POST  | /nodes/{id}/autojoinNetwork  | 设置自动入网                     |      |
 |  POST  | /nodes/{id}/basicinfo        | 设置设备基本信息                 |      |
 |  POST  | /nodes/{id}/connect          | 连接                             |      |
 |  POST  | /nodes/{id}/disconnect       | 断开连接                         |      |
@@ -101,12 +103,14 @@ GET http://192.168.99.1:8080/api/v1/nodes
 |  POST  | /nodes/{id}/mcsbound         | 设置速率自适应算法的速率调整区间 |      |
 |  POST  | /nodes/{id}/sle_connect      | sle设备连接                      |      |
 |  POST  | /nodes/{id}/sle_basicinfo    | 设置sle设备基本信息              |      |
+|  POST  | /nodes/{id}/sle_trans_config | 设置sle传输配置                  |      |
 |        |                              |                                  |      |
-|  GET   | /users/{id}                  | 获取用户信息                     | todo |
-|  POST  | /users/register              | 用户注册                         | todo |
-|  POST  | /users/login                 | 用户登录                         | todo |
-|  POST  | /users/{id}                  | 设置用户信息                     | todo |
+|  POST  | /user/register               | 用户注册                         |      |
+|  POST  | /user/login                  | 用户登录                         |      |
+|  POST  | /user/change_pwd             | 修改用户密码                     |      |
 |        |                              |                                  |      |
+|  GET   | /user/{id}                   | 获取用户信息                     | todo |
+|  POST  | /user/{id}                   | 设置用户信息                     | todo |
 |  GET   | /admin/{id}                  | 获取管理员信息                   | todo |
 |  POST  | /admin/{id}                  | 设置管理员信息                   | todo |
 |        |                              |                                  |      |
@@ -360,7 +364,7 @@ GET http://192.168.99.1:8080/api/v1/nodes
   {
     "status": "success",
     "data": {
-      "sle_type": 2,
+      "sle_type": 5,
       "sle_name": "sle_t001",
       "mac": "06:08:10:00:00:32",
       "sle_enable": 1
@@ -423,6 +427,31 @@ GET http://192.168.99.1:8080/api/v1/nodes
   }
   ```
 
+### 获取sle传输配置
+
+* **URL**：`/nodes/{id}/sle_trans_config`
+
+* **方法**：`GET`
+
+* **请求头**：`Authorization: Bearer <token>`
+
+* **请求参数**：无
+
+* **响应**（200 OK）：
+  json
+
+  ```json
+  {
+    "status": "success",
+    "data": {
+  		"trans_tcp_port":9981,
+        	"trans_udp_port":9982
+    }
+  }
+  ```
+
+
+
 ### sle设备连接
 
 * **URL**：`/nodes/{id}/sle_connect`
@@ -448,6 +477,30 @@ GET http://192.168.99.1:8080/api/v1/nodes
   }
   ```
 
+### 设置自动入网
+
+* **URL**：`/nodes/{id}/autojoinNetwork`
+
+* **方法**：`POST`
+
+* **请求头**：`Authorization: Bearer <token>`
+
+* **请求体**：json
+
+  ```json
+  {
+      "aj_flag": 0
+  }
+  ```
+
+* **响应**（200 OK）：json
+
+* **字段说明**
+
+  | 字段    | 类型 | 说明         | 备注             |
+  | ------- | ---- | ------------ | ---------------- |
+  | aj_flag | int  | 自动入网标志 | 0：关闭；1：开启 |
+
 ### 设置单个节点基本信息
 
 * **URL**：`/nodes/{id}/basicinfo`
@@ -465,7 +518,9 @@ GET http://192.168.99.1:8080/api/v1/nodes
   "ip": "192.168.99.1",
   "channel": 2479,
   "bw": 40,
-  "tfc_bw": 20
+  "tfc_bw": 20,
+  "log_port": 6025,
+  "net_manage_ip": "192.168.99.11"
 }
 ```
 
@@ -482,14 +537,16 @@ GET http://192.168.99.1:8080/api/v1/nodes
 
 - **字段说明**：
 
-| 字段      | 类型     | 说     明 | 备注                                                                                                                                                                        |
-|:-------:|:------:| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| type    | int    | 设备类型    | 0：G(SLB)   1:T(SLB)   5:G(SLE)  6:T(SLE)   7:P(SLE)                                                                                                                       |
-| name    | char[] | 设备名称    | 长度小于128                                                                                                                                                                   |
-| ip      | char[] | ip地址    |                                                                                                                                                                           |
-| channel | int    | 信道      | [41, 125, 209, 291, 375, 459, 541, 625, 709, 791, <br />1375, 1459, 1541, 1625, 1709,<br /> 1791, 1875, 1959, 2041, 2125, 2209,<br /> 2291, 2479, 2563, 2645, 2729, 2813] |
-| bw      | int    | 物理带宽    | [20,40,80]                                                                                                                                                                |
-| tfc_bw  | int    | 业务带宽    | 业务带宽小于等于物理带宽                                                                                                                                                              |
+|     字段      |  类型  | 说     明        | 备注                                                         |
+| :-----------: | :----: | ---------------- | ------------------------------------------------------------ |
+|     type      |  int   | 设备类型         | 0：G(SLB)   1:T(SLB)   5:G(SLE)  6:T(SLE)   7:P(SLE)         |
+|     name      | char[] | 设备名称         | 长度小于128                                                  |
+|      ip       | char[] | ip地址           |                                                              |
+|    channel    |  int   | 信道             | [41, 125, 209, 291, 375, 459, 541, 625, 709, 791, <br />1375, 1459, 1541, 1625, 1709,<br /> 1791, 1875, 1959, 2041, 2125, 2209,<br /> 2291, 2479, 2563, 2645, 2729, 2813] |
+|      bw       |  int   | 物理带宽         | [20,40,80]                                                   |
+|    tfc_bw     |  int   | 业务带宽         | 业务带宽小于等于物理带宽                                     |
+|   log_port    |  int   | 系统网管日志端口 |                                                              |
+| net_manage_ip | char[] | 系统网管ip地址   |                                                              |
 
 ### 设置单个节点高级信息
 
@@ -571,7 +628,8 @@ GET http://192.168.99.1:8080/api/v1/nodes
   ```json
   {
       "sle_type": 5,
-      "sle_name": "2981_sle_g"
+      "sle_name": "2981_sle_g",
+  	"sle_enable": 1
   }
   ```
 
@@ -579,10 +637,37 @@ GET http://192.168.99.1:8080/api/v1/nodes
 
 * **字段说明**
 
-  | 字段     | 类型   | 说明        | 备注                                                 |
-  | -------- | ------ | ----------- | ---------------------------------------------------- |
-  | sle_type | int    | sle设备类型 | 0：G(SLB)   1:T(SLB)   5:G(SLE)  6:T(SLE)   7:P(SLE) |
-  | sle_name | char[] | sle设备名称 | 长度<=32byte                                         |
+  | 字段       | 类型   | 说明        | 备注                                                 |
+  | ---------- | ------ | ----------- | ---------------------------------------------------- |
+  | sle_type   | int    | sle设备类型 | 0：G(SLB)   1:T(SLB)   5:G(SLE)  6:T(SLE)   7:P(SLE) |
+  | sle_name   | char[] | sle设备名称 | 长度<=32byte                                         |
+  | sle_enable | int    | sle使能     | 0：关闭sle；1：使能sle                               |
+
+### 设置sle传输配置
+
+* **URL**：`/nodes/{id}/sle_trans_config`
+
+* **方法**：`POST`
+
+* **请求头**：`Authorization: Bearer <token>`
+
+* **请求体**：json
+
+  ```json
+  {
+      "trans_tcp_port": 9981,
+      "trans_udp_port": 9982
+  }
+  ```
+
+* **响应**（200 OK）：json
+
+* **字段说明**
+
+  | 字段           | 类型 | 说明            | 备注 |
+  | -------------- | ---- | --------------- | ---- |
+  | trans_tcp_port | int  | tcp传输的端口号 |      |
+  | trans_udp_port | int  | udp传输的端口号 |      |
 
 ### 获取协商后的安全密钥算法
 
@@ -1119,6 +1204,39 @@ GET http://192.168.99.1:8080/api/v1/nodes
   }
   ```
 
+
+
+### 注册
+
+* **URL**：`/user/register`
+
+* **方法**：`POST`
+
+* **请求体**：json
+
+  ```json
+  {
+    "username": "wtsluser3",
+    "password": "yourpassword"
+  }
+  ```
+
+* **响应**（200 OK）：json
+
+  ```json
+  {
+    "status": "success",
+    "data": {
+      "username": "wtslusr3",
+      "uid": 4,
+      "gid": 1000
+    }
+  }
+  ```
+
+
+
+
 ### 登录
 
 * **URL**：`/user/login`
@@ -1130,8 +1248,7 @@ GET http://192.168.99.1:8080/api/v1/nodes
   ```json
   {
     "username": "admin",
-    "password": "secure_password",
-    "remember_me": false  // 是否延长 Token 有效期（如 7 天 vs 2 小时）
+    "password": "secure_password"
   }
   ```
   
@@ -1139,16 +1256,58 @@ GET http://192.168.99.1:8080/api/v1/nodes
   
   ```json
   {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expires_at": 1699999999,  // 时间戳（秒）
-    "user": {
-      "id": "admin",
-      "role": "admin"  // 角色（admin/operator）
+    "status": "success",
+    "data": {
+      "token": "zfdacvandfaofermrkofkaofkdalfafkjwekej",
+      "expires": 1699999999,
+      "uid": 3,
+      "gid": 1000
     }
   }
   ```
   
-  
+
+### 修改密码
+
+* **URL**：`/user/change_pwd`
+
+* **方法**：`POST`
+
+* **请求体**：json
+
+  ```json
+  {
+    "username": "wtslusr1",
+    "oldpassword": "youroldpassword"  
+    "newpassword": "yournewpassword"
+  }
+  ```
+
+* **响应**（200 OK）：json
+
+* ```json
+  {
+    "status": "success",
+    "data": {
+      "username": "wtslusr1",
+      "msg": "change password success"
+    }
+  }
+  ```
+
+* **响应**(失败) : json
+
+  ```json
+  {
+    "status": "Failed",
+    "data": {
+      "errcode": 1,
+      "errmsg": "param error"
+    }
+  }
+  ```
+
+
 
 ### 时间同步
 
@@ -1199,12 +1358,6 @@ GET http://192.168.99.1:8080/api/v1/nodes
       "data":    {
           "status":    "connected"
       }
-  }
-  ```
-  
-* ```json
-  {
-    "status": "success"
   }
   ```
 

@@ -1193,7 +1193,7 @@ char *data_response_to_json(char status,const char *data){
 	cJSON* existing_json = cJSON_Parse(data);
 	if(status != 0){
     	cJSON_AddStringToObject(response, "status", "Failed");
-		
+		cJSON_AddItemToObject(response, "data", existing_json);
 	}else{
 		cJSON_AddStringToObject(response, "status", "success");
 		cJSON_AddItemToObject(response, "data", existing_json);

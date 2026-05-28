@@ -1,6 +1,7 @@
 #ifndef _WTSL_USER_MANAGER_H__
 #define _WTSL_USER_MANAGER_H__
-// #include "wtsl_core_node_manager.h"
+
+#include <cjson/cJSON.h>
 
 // 权限级别定义
 typedef enum {
@@ -13,7 +14,12 @@ typedef enum {
 
 // 用户上下文（包含权限信息）
 typedef struct {
-    int user_id;
+    int user_id;        //id
+    int group_id;       //gid
+    int expire;
+    int last_login_time;
+    char username[64];
+    char token[256];
     PermissionLevel permission;
 } UserContext;
 
@@ -40,5 +46,38 @@ typedef struct {
 
 int check_user_has_permission(char *user,char *token,char *timestr);
 
-extern UserContext g_user_ctx;
+
+
+//extern UserContext g_user_ctx;
+typedef enum {
+    RET_OK,                             // 成功（无数据）
+    RET_ERR_PARAM,                      // 参数异常
+    RET_ERR_NO_MEMORY,                  // 内存不足
+    RET_ERR_USER_IS_NOT_EXISTED,        // 用户不存在
+    RET_ERR_USER_IS_EXISTED,            // 用户已存在
+    RET_ERR_OTHER                       //其他错误
+} RetErrorCode;
+
+typedef void* (ApiHandler)(char *url, const void *args,int size);
+
+typedef struct {
+    const char *uri;        // 接口路径 /api/login
+    ApiHandler *handler;    // 处理函数
+} RouteItem;
+
+
+UserContext wtsl_core_user_get_context();
+void wtsl_core_user_set_context(UserContext ctx);
+
+void wtsl_core_user_get_routeitem(RouteItem **item,int *count);
+
+// void* wtsl_core_user_login(const char *username,const char *password);
+void* wtsl_core_user_login(char *url,void *args,int size);
+void* wtsl_core_user_register(char *url,void *args,int size);
+void* wtsl_core_user_user_set_info();
+void* wtsl_core_user_get_info();
+void* wtsl_core_user_delete();
+void* wtsl_core_user_change_pwd(char *url,void *args,int size);
+
+
 #endif

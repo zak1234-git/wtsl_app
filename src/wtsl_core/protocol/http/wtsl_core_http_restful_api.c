@@ -27,6 +27,7 @@ typedef struct {
 
 
 static List *g_url_list = NULL;
+static UserContext g_user_ctx;
 
 // #define OLD_API 1
 #ifdef OLD_API
@@ -218,6 +219,12 @@ int node_id_compare(const void *a, const void *b) {
 	return (node->id == target_id);
 }
 
+static void *wtsl_core_get_users_functions(const char *url,const void *args,int size){
+	WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d],url:%s,args:%s,size:%d",__FUNCTION__,__LINE__,url,args,size);
+	//todo;
+	return NULL;
+}
+
 static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int size){
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],url:%s,args:%s,size:%d",__FUNCTION__,__LINE__,url,args,size);
 	static char recv_bss[1024]={0};
@@ -335,6 +342,14 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get node sle basic info failed",__FUNCTION__,__LINE__);
 				return NULL;
 			}
+			return (void *)ret;
+		}else if (strncmp(func_str, "sle_trans_config", 16)==0){
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]get sle trans config",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,get_sle_trans_config,recv_bss,sizeof(recv_bss),&g_user_ctx);
+			if (ret == NULL) {
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get sle trans config failed",__FUNCTION__,__LINE__);
+				return NULL;
+			}
 			return (void *)ret;			
 		}else{
 			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
@@ -362,34 +377,28 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 					return NULL;
 				}
 				return (void *)recv_bss;
-			}else if (strncmp(func_way_str, "rules", 5) == 0){
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get qos rules",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,qos_handle_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
-				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes qos rules error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)recv_bss;
 			}
-		}else if (strncmp(func_str, "acl", 3)==0){
+		}
+		if (strncmp(func_str, "acl", 3)==0){
 			char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-			if (strncmp(func_way_str, "status", 6) == 0){
-				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get acl status",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,acl_get_status,recv_bss,sizeof(recv_bss),&g_user_ctx);
-				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes acl status error",__FUNCTION__,__LINE__);
-					return NULL;
-				}
-				return (void *)recv_bss;
-			}else if (strncmp(func_way_str, "rules", 5) == 0){
+			if (strncmp(func_way_str, "rules", 5) == 0){
 				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes get acl rules",__FUNCTION__,__LINE__);
-				void *ret = CALL_INTERFACE(p_node,acl_handle_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
+				void *ret = CALL_INTERFACE(p_node,get_acl_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
 				if(ret == NULL){
-					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get nodes acl rules error",__FUNCTION__,__LINE__);
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]get acl rules error",__FUNCTION__,__LINE__);
 					return NULL;
 				}
-				return (void *)recv_bss;
+				return (void *)ret;	
 			}
+			if (strncmp(func_way_str, "clear_rules", 11) == 0){
+				WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes clear acl rules",__FUNCTION__,__LINE__);
+				void *ret = CALL_INTERFACE(p_node,clear_acl_rules,recv_bss,sizeof(recv_bss),&g_user_ctx);
+				if(ret == NULL){
+					WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]clear acl ruleserror",__FUNCTION__,__LINE__);
+					return NULL;
+				}
+				return (void *)ret;	
+			}			
 		}else{
 			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
 			return NULL;
@@ -398,6 +407,32 @@ static void *wtsl_core_get_nodes_functions(const char *url,const void *args,int 
 
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d],url:%s,args:%s,size:%d OUT",__FUNCTION__,__LINE__,url,args,size);
 	return (void *)recv_bss;
+}
+
+
+static void *wtsl_core_post_users_functions(const char *url,const void *args,int size){
+	char *ptr = NULL;
+	int i = 0;
+//	int ret = 0;
+	RouteItem *pItem = NULL;
+	int itemCount = 0;
+	WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d],url:%s,args:%s,size:%d",__FUNCTION__,__LINE__,url,args,size);
+//	static char recv_bss[1024]={0};
+	ptr = url;
+	ptr+=7;
+	wtsl_core_user_get_routeitem(&pItem,&itemCount);
+	WTSL_LOG_ERROR(MODULE_NAME,"item count:%d",itemCount);
+	fprintf(stderr,"i:0,url:%s ",pItem[0].uri);
+	g_user_ctx = wtsl_core_user_get_context();
+	for (i = 0; i < itemCount; i++) {
+		fprintf(stderr,"i:%d,url:%s ",i,pItem[i].uri);
+        if (strcmp(ptr, pItem[i].uri) == 0) {
+			WTSL_LOG_INFO(MODULE_NAME,"find api:%s",ptr);
+			void *ret = pItem[i].handler(url,args,size);
+			return ret;
+        }
+    }
+	return NULL;
 }
 
 static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int size){
@@ -633,6 +668,14 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] config vap0 mac error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
+			return (void *)ret;
+	}else if (strncmp(func_str, "sle_trans_config", 16)==0){
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]set sle trans config",__FUNCTION__,__LINE__);
+			void *ret = CALL_INTERFACE(p_node,set_sle_trans_config,(void *)args,size,&g_user_ctx);
+			if(ret == NULL){
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] set sle trans config error",__FUNCTION__,__LINE__);
+				return NULL;
+			}
 			return (void *)ret;			
 	}else if(strncmp(func_str,"firmware", 8) == 0){
 		if(g_url_list->size < 5)
@@ -659,50 +702,22 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 			}
 			return (void *)ret;
 		}
-	} else if (strncmp(func_str, "qos", 3) == 0) {
-		if (g_url_list->size < 5)
+	}
+	else if(strncmp(func_str,"acl", 3) == 0){
+		if(g_url_list->size < 5)
 			return NULL;
-		
+
 		char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-		if (strncmp(func_way_str, "switch", 6) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos switch",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_switch,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos switch error",__FUNCTION__,__LINE__);
+		if(strncmp(func_way_str, "rules", 5) == 0){
+			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do nodes acl rules",__FUNCTION__,__LINE__);
+			// char *ret = (char *)p_node->do_upgrade(p_node,(void *)args,size);
+			void *ret = CALL_INTERFACE(p_node,acl_rules,(void *)args,size,&g_user_ctx);
+			if(ret == NULL){
+				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]acl rules error",__FUNCTION__,__LINE__);
 				return NULL;
 			}
 			return (void *)ret;
-		}else if (strncmp(func_way_str, "rules", 5) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos rules",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,qos_handle_rules,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos rules error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		}
-	} else if (strncmp(func_str, "acl", 3) == 0) {
-		if (g_url_list->size < 5)
-			return NULL;
-		
-		char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
-		if (strncmp(func_way_str, "switch", 6) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set acl switch",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_switch,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set acl switch error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		}else if (strncmp(func_way_str, "rules", 5) == 0) {
-			WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set acl rules",__FUNCTION__,__LINE__);
-			void *ret = CALL_INTERFACE(p_node,acl_handle_rules,(void *)args,size,&g_user_ctx);
-			if (ret == NULL) {
-				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set acl rules error",__FUNCTION__,__LINE__);
-				return NULL;
-			}
-			return (void *)ret;
-		}
+		}		
 	}
 	if(g_url_list->size == 6)
 		{
@@ -725,11 +740,24 @@ static void *wtsl_core_post_nodes_functions(const char *url,const void *args,int
 					return NULL;
 				}
 				return (void *)ret;
+			}else if (strncmp(func_str, "switch", 6) == 0) {
+				if (g_url_list->size < 5)
+					return NULL;
+			
+				char *func_way_str = ((UrlData *)list_get(g_url_list,5))->str;
+				if (strncmp(func_way_str, "switch", 6) == 0) {
+					WTSL_LOG_INFO(MODULE_NAME, "[%s][%d]do set qos switch",__FUNCTION__,__LINE__);
+					void *ret = CALL_INTERFACE(p_node,qos_switch,(void *)args,size,&g_user_ctx);
+					if (ret == NULL) {
+						WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]do set qos switch error",__FUNCTION__,__LINE__);
+						return NULL;
+					}
+					return (void *)ret;
+				}
 			}else{
 				WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]no support func:%s",__FUNCTION__,__LINE__,func_str);
 				return NULL;
 			}		
-	
 	
 		}
 	
@@ -865,7 +893,7 @@ APIRET wtcoreapi_parse_http_post_cmd(const char *url, const char *data,int size)
 		if(strncmp(posturl,url,strlen(posturl))==0){
 			WTSL_LOG_INFO(MODULE_NAME, "执行: %s -> ", wtapi_post_func_mappings[i].apiname);
 			ret.data = wtapi_post_func_mappings[i].pfunc(url,(void *)data,size);
-			if(ret.data != NULL){
+			if(ret.data != NULL && strstr(ret.data,"errmsg") == NULL){
 				ret.status = 0;
 			}
 			return ret;
@@ -877,9 +905,11 @@ APIRET wtcoreapi_parse_http_post_cmd(const char *url, const char *data,int size)
 
 WTAPI_FUNC_MAP wtapi_get_func_mappings[] = {
 	{"nodes",wtsl_core_get_nodes_functions},
+	{"user",wtsl_core_get_users_functions},
 	{NULL, NULL}      // 结束标志
 };
 WTAPI_FUNC_MAP wtapi_post_func_mappings[] = {
 	{"nodes", wtsl_core_post_nodes_functions},
+	{"user",wtsl_core_post_users_functions},
 	{NULL, NULL}      // 结束标志
 };

@@ -110,6 +110,8 @@ enum MHD_Result request_handler(void *cls, struct MHD_Connection *conn,
 	(void)url;
 	(void)upload_data;
 	// WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] method:%s,url:%s,uplen:%d,updata:%s",__func__,__LINE__,method,url,*upload_data_size,upload_data);
+    const char *auth_hdr = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Authorization");
+
     if (*con_cls == NULL) {
 		const char *content_length = MHD_lookup_connection_value(conn,
 	                                                                MHD_HEADER_KIND,
@@ -135,6 +137,10 @@ enum MHD_Result request_handler(void *cls, struct MHD_Connection *conn,
             return handle_options_request(conn);
     } else if(strcmp(method, "GET") == 0){
 		WTSL_LOG_INFO(MODULE_NAME, "handle_get ");
+        if(auth_hdr == NULL){
+            WTSL_LOG_ERROR(MODULE_NAME,"No Auth Get");
+            return MHD_NO;
+        }
 		return http_get_cmd(conn,url,upload_data,upload_data_size);
     }else if(strcmp(method, "POST") == 0){
     	struct request_data *rd = *con_cls;
@@ -169,6 +175,16 @@ enum MHD_Result request_handler(void *cls, struct MHD_Connection *conn,
 		if (rd->is_complete) {
 		   WTSL_LOG_INFO(MODULE_NAME, "post_data_handler: data Receive completed(actual: %zu, expect: %zu)",rd->data_size, rd->expected_size);
 		   WTSL_LOG_INFO(MODULE_NAME, "data:%s,data_receied:%d,size:%u",rd->data,rd->data_received,rd->data_size);
+           char *ptr = url;
+           ptr = ptr + 7;
+           printf("#############ptr : %s  ####################\n",ptr);
+           if(auth_hdr == NULL){
+                if(!(strcmp(ptr,"/user/register") == 0 || strcmp(ptr,"/user/login") == 0)){
+                   
+                    WTSL_LOG_ERROR(MODULE_NAME,"url: %s,ptr:%s no auth access",url,ptr);
+                    return MHD_NO;
+                }
+           }
 		   wtsl_core_http_deal_post_data(conn,url,rd->data,rd->data_size);
 		   *upload_data_size = 0;
 		   return MHD_YES;
