@@ -80,11 +80,11 @@ void* interface_wrapper(WTSLNode *node,
     
     // 权限检查
     if (!check_permission_user(ctx, required)) {
-        WTSL_LOG_ERROR(MODULE_NAME,"Permission denied: User %d need %d for %s, but only has %d",ctx->user_id, required, node->perm_map[func_index].func_name, ctx->permission);
+        WTSL_LOG_ERROR(MODULE_NAME,"Permission denied: User %d groupid: %d,need %d for %s, but only has %d",ctx->user_id,ctx->group_id, required, node->perm_map[func_index].func_name, ctx->permission);
         return NULL;
     }
     
-    WTSL_LOG_DEBUG(MODULE_NAME,"Permission granted: User %d execute %s", ctx->user_id, node->perm_map[func_index].func_name);
+    WTSL_LOG_DEBUG(MODULE_NAME,"Permission granted: User %d,group_id:%d execute %s", ctx->user_id,ctx->group_id,node->perm_map[func_index].func_name);
     
     ret = check_is_remote_node(node,data,size);
     if(ret == 0){

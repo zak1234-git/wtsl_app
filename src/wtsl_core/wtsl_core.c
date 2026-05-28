@@ -10,6 +10,8 @@
 #include "wtsl_core_slb_interface.h"
 #include "wtsl_cfg_manager.h"
 #include "wtsl_core_slb_qos_core.h"
+#include "wtsl_core_db.h"
+
 const char *js_cfg_path="/home/wt/www/config.json";
 extern int wtsl_http_main();
 char g_is_run = 1;
@@ -75,6 +77,7 @@ int wtsl_core_main() {
 	}else if(param->type == NODE_TYPE_SLB_T){
 		ret |= system("echo 0 > /sys/class/gpio/gpio419/value");
 	}
+	init_db();
 	init_node();
 
 	if (wtsl_logger_init(APP_NAME, global_node_info) != 0) {

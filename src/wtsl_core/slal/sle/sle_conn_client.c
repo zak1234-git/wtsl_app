@@ -249,6 +249,7 @@ void fast_data_recv_cb(uint16_t rmt_hdl, uint8_t *data, uint16_t data_len)
 {
     sample_at_log_print("conn: %d, data: %d, len = %d", rmt_hdl, *data, data_len);
     sle_tcp_server_send(data,data_len);
+    sle_udp_server_send(data,data_len);
 }
 void sle_client_init(void)
 {

@@ -27,6 +27,7 @@ void signal_handler(int signum)
     printf("recv signal %d: %s\n", signum, strsignal(signum));
     g_running = 0;
     sle_stop_tcp_server();
+    sle_stop_udp_server();
 }
 
 void register_signal(void)
@@ -84,7 +85,9 @@ void* wtsl_core_sle(void * args)
 		sle_server_init();  // SLE server初始化
 	else
 		printf("sle type error: %d\n", global_node_info.node_info.basic_info.sle_type);
-    create_tcp_server();
+
+	tcp_init();
+	udp_init();
 
     while (g_running) {  // 收到信号g_running状态改变
         sleep(SLE_CLIENT_SLEEP_TIME);  // 5

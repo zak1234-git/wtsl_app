@@ -334,6 +334,8 @@ int config_read()
 	config_get_int("SLE_TYPE", &node->sle_type);
 	config_get("SLE_NAME", node->sle_name, sizeof(node->sle_name));
 	config_get_int("SLE_ENABLE", &node->sle_enable);
+	config_get_int("TRANS_TCP_PORT", &node->trans_tcp_port);
+	config_get_int("TRANS_UDP_PORT", &node->trans_udp_port);
 
 	//配置文件读取其他参数
 	//.......

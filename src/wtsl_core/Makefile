@@ -29,6 +29,7 @@ CFLAGS  := -Wall -Wextra -O2 -fPIC -Wno-unused-result \
             -I../../inc \
  		   -I./api \
             -I../../inc/cjson \
+			-I../../inc/sqlcipher \
  		   -I$(INCLUDES)
 
 # 目录定义
