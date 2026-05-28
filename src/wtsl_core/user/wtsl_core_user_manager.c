@@ -1,6 +1,8 @@
 #include "wtsl_user_manager.h"
 #include "wtsl_log_manager.h"
 #include "wtsl_core_node_manager.h"
+#include "openssl/md5.h"
+#include "openssl/sha.h"
 
 
 #define MODULE_NAME "user_manager"
@@ -31,17 +33,97 @@ static RouteItem g_route_table[] = {
     { NULL, NULL },  // 结束符，必须保留
 };
 
+
+char* generate_salt(int length){
+    static const char charset[] = "abcdefghijklmnopqrstuvwxyz"
+                                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                  "0123456789./";
+    char *salt = (char *)malloc(length + 1);
+
+	if(salt){
+		srand(time(NULL) ^ (unsigned long)salt);
+		for(int i=0;i<length;i++){
+			salt[i] = charset[rand() % (sizeof(charset) -1 )];
+		}
+		salt[length]='\0';
+	}
+	return salt;
+}
+
+
+void str2md5(const char *str, char *out_md5)
+{
+    MD5_CTX ctx;
+    unsigned char md[16];  // MD5 固定输出 16 字节
+    int i;
+
+
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, str, strlen(str));
+    MD5_Final(md, &ctx);
+
+
+    // 转成 32 位十六进制
+    for (i = 0; i < 16; i++)
+        sprintf(out_md5 + i*2, "%02x", md[i]);
+}
+
+// 使用SHA-256加盐哈希加密密码
+char* encrypt_password(const char* plain_password, const char* salt) {
+    if (!plain_password || !salt) return NULL;
+    
+    // 组合密码和盐值
+    size_t pass_len = strlen(plain_password);
+    size_t salt_len = strlen(salt);
+    char* combined = (char*)malloc(pass_len + salt_len + 1);
+    
+    if (!combined) return NULL;
+    
+    strcpy(combined, plain_password);
+    strcat(combined, salt);
+    
+    // 计算SHA-256哈希
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((const unsigned char*)combined, strlen(combined), hash);
+    
+    // 转换为十六进制字符串
+    char* encrypted = (char*)malloc(SHA256_DIGEST_LENGTH * 2 + 1);
+    if (!encrypted) {
+        free(combined);
+        return NULL;
+    }
+    
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(encrypted + (i * 2), "%02x", hash[i]);
+    }
+    encrypted[SHA256_DIGEST_LENGTH * 2] = '\0';
+    
+    free(combined);
+    return encrypted;
+}
+
+
+// 验证密码
+int verify_password(const char* plain_password, const char* encrypted_password, const char* salt) {
+    if (!plain_password || !encrypted_password || !salt) return 0;
+    
+    char* encrypted = encrypt_password(plain_password, salt);
+    if (!encrypted) return 0;
+    
+    int result = (strcmp(encrypted, encrypted_password) == 0);
+    free(encrypted);
+    
+    return result;
+}
+
 void generate_token(const char *user, char *out) {
-	char key[33] = {0};
+	char tokenstr[128]={0};
+	char md5[33]={0};
     unsigned long long ts = (unsigned long long)time(NULL);
-	// if (md5_file(g_cfg.dbname, key) != 0) {
-    //     printf("[WARN] MD5计算失败，使用默认密钥\n");
-    //     strcpy(key, "00000000000000000000000000000000");
-    // }
-    //md5_string("user.db", key);
-    strcpy(key,"thisisatestkey");
-    //snprintf(out, MAX_TOKEN, "%s_%llu_%s", user, ts, g_cfg.token_key);
-    snprintf(out, MAX_TOKEN, "%s_%llu_%s", user, ts, key);
+	sprintf(tokenstr,"%s_%llu_%s", user, ts, generate_salt(16));
+	str2md5(tokenstr,md5);
+	printf("tokenstr:%s,md5:%s\n",tokenstr,md5);
+	snprintf(out,MAX_TOKEN,md5);
 }
 
 
@@ -127,6 +209,17 @@ void* wtsl_core_user_login(char *url,void *args,int size){
     fprintf(stderr,"##########token:%s ################\n",g_user_ctx.token);
     db_get_user_ctx(user,&g_user_ctx);
     db_update_user_token(user,g_user_ctx.token);
+	fprintf(stderr,"##########groupid:%d user:%s################\n",g_user_ctx.group_id,user);
+	switch(g_user_ctx.group_id){
+		case 0:
+			g_user_ctx.permission = PERMISSION_ADMIN;//PERMISSION_READ | PERMISSION_WRITE |  PERMISSION_EXECUTE;
+			break;
+		case 1000:			
+		default:
+			g_user_ctx.permission = PERMISSION_READ;
+			break;
+	}
+	//if(strcmp(user,"admin") == 0)g_user_ctx.permission = PERMISSION_READ | PERMISSION_WRITE |  PERMISSION_EXECUTE;
     resp = cJSON_CreateObject();
     cJSON_AddItemToObject(resp, "token", cJSON_CreateString(g_user_ctx.token));
     cJSON_AddItemToObject(resp, "expires", cJSON_CreateNumber(g_user_ctx.expire));
@@ -164,7 +257,7 @@ void* wtsl_core_user_register(char *url,void *args,int size){
     printf("[DEBUG] login user=%s, pwd=%s\n", user, pwd);
     if (!db_user_exists(user)) {
         printf("[DEBUG] user not exists,to register\n");
-        db_register(user, pwd);
+        db_register(user, 1000, pwd);
         printf("[DEBUG] register over\n");
     }else{
         WTSL_LOG_ERROR(MODULE_NAME,"<%s> is existed ################",user);

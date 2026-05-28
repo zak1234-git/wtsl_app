@@ -70,7 +70,7 @@ int db_create_all_tables(void) {
 
 static int db_set_default_admin_info(){
     if(!db_user_exists("admin")){
-        db_register("admin","123456");
+        db_register("admin",0,"123456");
         DBG_DB("db_set_default_admin_info ok\n");
     }
    return 0;
@@ -150,14 +150,14 @@ int db_register(const char *user, const char *pwd) {
 }
 #endif
 
-int db_register(const char *user, const char *pwd) {
+int db_register(const char *user, int gid ,const char *pwd) {
 
 //    int gid = 1000;
     sqlite3_stmt *stmt;
     int rc;
     const char *sql = "INSERT INTO user ("
         "username, password, gid, token, expire, name, age, gender, level, address, phone"
-        ") VALUES (?, ?, 1000, NULL, 1699999999, '', 0, '', 0, '', '')";
+        ") VALUES (?, ?, ?, NULL, 1699999999, '', 0, '', 0, '', '')";
 
     // 1. 校验非空
     if (!user || !pwd || strlen(user) == 0 || strlen(pwd) == 0) {
@@ -174,7 +174,7 @@ int db_register(const char *user, const char *pwd) {
     // 绑定参数
     sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, pwd, -1, SQLITE_STATIC);
-    // sqlite3_bind_text(stmt, 3, gid, -1, SQLITE_STATIC);
+	sqlite3_bind_int(stmt, 3, gid); 
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {

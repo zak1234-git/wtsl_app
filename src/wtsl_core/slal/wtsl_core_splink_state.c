@@ -113,10 +113,16 @@ void *wtsl_core_splink_auto_join_net(void * args){
 			pthread_cond_wait(&auto_join_net_cond, &auto_join_net_mutex);
 			idx = 0;
 		}
-        slb_t_node_scan("vap0");
+		if(global_node_info.node_info.basic_info.auto_join_net_flag == 0) //当网络断开时，堵塞被唤醒，此时要判断自动入网标志字
+		{
+			pthread_mutex_unlock(&auto_join_net_mutex);
+			continue;
+		}
+
+        slb_t_node_scan(NET_VAP_NAME);
 		sleep(4);
 		WTSL_LOG_INFO(MODULE_NAME, "start join_net: %s", global_node_info.node_info.basic_info.auto_join_net_mac[idx]);
-		slb_t_node_join_bssid("vap0", global_node_info.node_info.basic_info.auto_join_net_mac[idx]);
+		slb_t_node_join_bssid(NET_VAP_NAME, global_node_info.node_info.basic_info.auto_join_net_mac[idx]);
 		
 		if(idx == 2)
 			idx = 0;

@@ -114,6 +114,8 @@ typedef struct _WTSLNodeInfo {
     int sle_type;
     char sle_name[32];
     int sle_enable;
+    int trans_tcp_port;
+    int trans_udp_port;
     uint64_t adv_info;
 }WTSLNodeBasicInfo;
 #pragma pack(pop)
@@ -195,11 +197,12 @@ typedef void * (WTSLNodeCallBack)(void* pNode,void *data,unsigned int size,UserC
     X(set_sle_announce_id, PERMISSION_WRITE, wtsl_core_set_announce_id,38)\
     X(qos_get_status, PERMISSION_READ, wtsl_core_qos_get_status,39)\
     X(qos_switch, PERMISSION_WRITE, wtsl_core_qos_switch, 40)\
-    X(qos_handle_rules, PERMISSION_WRITE, wtsl_core_qos_handle_rules, 41)\
-    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 42)\
-    X(acl_get_status, PERMISSION_READ, wtsl_core_acl_get_status, 43)\
-    X(acl_switch, PERMISSION_WRITE, wtsl_core_acl_switch, 44)\
-    X(acl_handle_rules, PERMISSION_WRITE, wtsl_core_acl_handle_rules, 45)
+    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 41)\
+    X(set_sle_trans_config, PERMISSION_WRITE, wtsl_core_set_sle_trans_config, 42)\
+    X(get_sle_trans_config, PERMISSION_WRITE, wtsl_core_get_sle_trans_config, 43)\
+    X(acl_rules, PERMISSION_WRITE, wtsl_core_acl_rules, 44)\
+    X(get_acl_rules, PERMISSION_WRITE, wtsl_core_get_acl_rules, 45)\
+    X(clear_acl_rules, PERMISSION_WRITE, wtsl_core_clear_acl_rules, 46)
     
 // ------------------------------
 // 使用X宏生成接口表结构体

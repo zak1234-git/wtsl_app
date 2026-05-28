@@ -179,7 +179,7 @@ enum MHD_Result request_handler(void *cls, struct MHD_Connection *conn,
            ptr = ptr + 7;
            printf("#############ptr : %s  ####################\n",ptr);
            if(auth_hdr == NULL){
-                if(!(strcmp(ptr,"/user/register") == 0 || strcmp(ptr,"/user/login") == 0)){
+                if(!(strcmp(ptr,"/user/register") == 0 || strcmp(ptr,"/user/login") == 0 || strcmp(ptr,"/user/change_pwd") == 0)){
                    
                     WTSL_LOG_ERROR(MODULE_NAME,"url: %s,ptr:%s no auth access",url,ptr);
                     return MHD_NO;

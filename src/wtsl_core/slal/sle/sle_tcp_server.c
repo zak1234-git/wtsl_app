@@ -6,11 +6,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include "wtsl_core_api.h"
 
-#define PORT 9981
+//#define PORT 9981
 #define BUFFER_SIZE 200
 
-extern uint8_t g_running;
+extern SPLINK_INFO global_node_info;
+static uint8_t g_tcp_running = 1;
 static int g_server_fd = -1;
 static int g_client_socket = -1;
 extern void sle_client_senddata(uint8_t *data, uint16_t data_len);
@@ -21,7 +23,7 @@ void *recv_msg(void *arg) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
     printf("recv msg client_socket:%d,g_client_socket: %d\n",client_socket,g_client_socket);
-    while (g_running) {
+    while (g_tcp_running) {
         // 清空缓冲区
         memset(buffer, 0, BUFFER_SIZE);
         // 接收客户端消息
@@ -38,7 +40,7 @@ void *recv_msg(void *arg) {
     pthread_exit(NULL);
 }
 
-int create_tcp_server() {
+ void *create_tcp_server() {
     int server_fd, client_socket;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
@@ -52,8 +54,8 @@ int create_tcp_server() {
     g_server_fd = server_fd;
     // 设置服务器地址和端口
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;  // 监听所有网络接口
-    address.sin_port = htons(PORT);        // 转换为网络字节序
+    address.sin_addr.s_addr = INADDR_ANY;  												   // 监听所有网络接口
+    address.sin_port = htons(global_node_info.node_info.basic_info.trans_tcp_port);        // 转换为网络字节序
 
     // 绑定套接字到指定端口
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
@@ -67,10 +69,10 @@ int create_tcp_server() {
         exit(EXIT_FAILURE);
     }
 
-    printf("服务器启动，监听端口 %d...\n", PORT);
+    printf("服务器启动，监听端口 %d...\n", global_node_info.node_info.basic_info.trans_tcp_port);
     printf("等待客户端连接...\n");
 
-    while(g_running){
+    while(g_tcp_running){
         // 接受客户端连接
         if ((client_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
             perror("accept failed");
@@ -113,7 +115,7 @@ int create_tcp_server() {
     close(server_fd);
     printf("服务器已关闭\n");
 
-    return 0;
+    return NULL;
 }
 
 int sle_tcp_server_send(const char *buffer, size_t len){
@@ -124,7 +126,23 @@ int sle_tcp_server_send(const char *buffer, size_t len){
 }
 
 void sle_stop_tcp_server(){
-    close(g_server_fd);
-    close(g_client_socket);
+    //close(g_server_fd);
+    //close(g_client_socket);
     printf("sle stop tcp_server\n");
+    
+    g_tcp_running = 0;
+    shutdown(g_client_socket, SHUT_RD);
+}
+
+void tcp_init(void)
+{
+	pthread_t create_tcp_server_thread;
+	g_tcp_running = 1;
+    if(pthread_create(&create_tcp_server_thread, NULL, create_tcp_server, NULL) != 0) 
+    {
+	    perror("pthread_create failed");
+	    exit(EXIT_FAILURE);
+	}	
+	
+	pthread_detach(create_tcp_server_thread);
 }

@@ -6,7 +6,8 @@ int init_db(void);
 int db_create_all_tables(void); // 批量创建表
 
 int db_user_exists(const char *user);
-int db_register(const char *user, const char *pwd);
+int db_register(const char *user,int gid, const char *pwd);
+
 int db_get_register_resp(const char *user,int *id,int *gid);
 int db_check_password(const char *user, const char *pwd);
 int db_get_token(const char *user, char *out);

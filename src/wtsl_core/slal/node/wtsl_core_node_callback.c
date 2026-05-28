@@ -34,6 +34,12 @@ int connected_num = 0;
 extern connect_manage_t connect_manage[SLE_MAX_CONN];
 int announce_id[20] = {0};
 int announce_id_num = 0;
+// 最大字段长度限制，可根据需要调整
+#define MAX_RULE_CMD_LEN 2048
+#define MAX_ADDR_LEN 64
+#define MAX_MAC_LEN 32
+#define MAX_PORT_STR_LEN 64
+
 
 
 void* wtsl_core_get_all_nodes_info(void* pNode, void *data, unsigned int size, UserContext *ctx){
@@ -365,7 +371,8 @@ void* wtsl_core_qos_switch(void* phandle, void *data, unsigned int size, UserCon
 	
 	cJSON* type = cJSON_GetObjectItemCaseSensitive(root,"enabled");
 	if(type != NULL && cJSON_IsBool(type)) {
-		ret = qos_toggle_switch(g_state.enabled);
+		bool temp_type = cJSON_IsTrue(type) ? true : false;
+		ret = qos_toggle_switch(temp_type);
 		if (ret != 0) {
 			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]data paraser error",__FUNCTION__,__LINE__);
 			return NULL;
@@ -2375,199 +2382,422 @@ void* wtsl_core_config_vap0_mac(void* ph, void *data, unsigned int size, UserCon
 	return (void*)"success";
 }
 
-
-
-/* ==================== ACL/Firewall Callbacks ==================== */
-
-#include "wtsl_core_slb_acl_core.h"
-
-void* wtsl_core_acl_get_status(void* ph, void *data, unsigned int size, UserContext *ctx)
+void* wtsl_core_set_sle_trans_config(void* ph, void *data, unsigned int size, UserContext *ctx)
 {
 	(void)ctx;
 	(void)ph;
-	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting ACL status",__FUNCTION__,__LINE__);
-	
-	cJSON *resp = cJSON_CreateObject();
-	acl_get_status(resp);
-	
-	const char *json_str = cJSON_Print(resp);
-	WTSL_LOG_DEBUG(MODULE_NAME, "ACL status: %s", json_str);
-	
-	if (strlen(json_str) >= size) {
-		cJSON_Delete(resp);
-		return NULL;
-	}
-	
-	strncpy(data, json_str, size);
-	cJSON_Delete(resp);
-	return data;
-}
-
-void* wtsl_core_acl_switch(void* ph, void *data, unsigned int size, UserContext *ctx)
-{
 	(void)ctx;
-	(void)ph;
-	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Setting ACL switch",__FUNCTION__,__LINE__);
+	WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
 	
-	if (data == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+	cJSON *root =cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not a vaild json data",__func__,__LINE__);
 		return NULL;
 	}
-	
-	cJSON *root = cJSON_Parse(data);
-	if (root == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
-		return NULL;
+
+	cJSON* trans_tcp_port = cJSON_GetObjectItem(root,"trans_tcp_port");
+	if(trans_tcp_port != NULL){
+		//检测tcp端口号是否变化
+		if(global_node_info.node_info.basic_info.trans_tcp_port != trans_tcp_port->valueint)
+		{
+			global_node_info.node_info.basic_info.trans_tcp_port = trans_tcp_port->valueint;
+			config_set_int("TRANS_TCP_PORT", global_node_info.node_info.basic_info.trans_tcp_port);
+			sle_stop_tcp_server();
+			sleep(1); 			 //等待线程释放
+			tcp_init(); 		 //重新根据端口号创建线程
+		}
 	}
-	
-	cJSON *j_enabled = cJSON_GetObjectItem(root, "enabled");
-	if (j_enabled && cJSON_IsBool(j_enabled)) {
-		acl_toggle_switch(j_enabled->valueint);
+
+	cJSON* trans_udp_port = cJSON_GetObjectItem(root,"trans_udp_port");
+	if(trans_udp_port != NULL){
+		//检测udp端口号是否变化
+		if(global_node_info.node_info.basic_info.trans_udp_port != trans_udp_port->valueint)
+		global_node_info.node_info.basic_info.trans_udp_port = trans_udp_port->valueint;
+		config_set_int("TRANS_UDP_PORT", global_node_info.node_info.basic_info.trans_udp_port);
+		sle_stop_udp_server();
+		sleep(1); 			 //等待线程释放
+		udp_init(); 		 //重新根据端口号创建线程		
 	}
-	
+
 	cJSON_Delete(root);
-	return (void*)"acl_switch_success";
+	return (void*)"success";
+
 }
 
-void* wtsl_core_acl_handle_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+void* wtsl_core_get_sle_trans_config(void* ph, void *data, unsigned int size, UserContext *ctx)
 {
 	(void)ctx;
 	(void)ph;
-	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Handling ACL rules",__FUNCTION__,__LINE__);
-	
-	if (data == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
-		return NULL;
-	}
-	
-	cJSON *root = cJSON_Parse(data);
-	if (root == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
-		return NULL;
-	}
-	
-	cJSON *resp = cJSON_CreateObject();
-	
-	cJSON *j_action = cJSON_GetObjectItem(root, "action");
-	cJSON *j_chain = cJSON_GetObjectItem(root, "chain");
-	
-	const char *action = j_action ? j_action->valuestring : "list";
-	const char *chain = j_chain ? j_chain->valuestring : "INPUT";
-	
-	acl_handle_request(action, chain, root, resp);
-	
-	const char *json_str = cJSON_Print(resp);
-	WTSL_LOG_DEBUG(MODULE_NAME, "ACL response: %s", json_str);
-	
-	if (strlen(json_str) >= size) {
-		cJSON_Delete(resp);
+	(void)ctx;
+	(void)data;
+	WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
+
+	cJSON* root = cJSON_CreateObject();
+	cJSON_AddItemToObject(root, "trans_tcp_port", cJSON_CreateNumber(global_node_info.node_info.basic_info.trans_tcp_port));
+	cJSON_AddItemToObject(root, "trans_udp_port", cJSON_CreateNumber(global_node_info.node_info.basic_info.trans_udp_port));
+
+
+	char* json_str = cJSON_Print(root);
+	if(!json_str)
+	{
+		WTSL_LOG_ERROR(MODULE_NAME,"cjson str create error");
 		cJSON_Delete(root);
 		return NULL;
 	}
-	
-	strncpy(data, json_str, size);
-	cJSON_Delete(resp);
 	cJSON_Delete(root);
-	return data;
+	return json_str;
 }
 
-/* ==================== Enhanced QoS Callbacks ==================== */
+// 生成一条iptables规则的函数
+static void build_iptables_rule(
+    const char *src_ip,
+    const char *src_mac,
+    const char *src_port_str,
+    const char *dst_ip,
+    const char *dst_mac,
+    const char *dst_port_str,
+    const char *protocol,
+    const char *policy
+) {
+    char cmd[MAX_RULE_CMD_LEN] = {0};
+    char *ptr = cmd;
 
-void* wtsl_core_qos_handle_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+    // 基础命令：追加到FORWARD链
+    ptr += sprintf(ptr, "iptables -A FORWARD");
+
+    // 1. 源IP（不为空才加）
+    if (src_ip && *src_ip) {
+        ptr += sprintf(ptr, " -s %s", src_ip);
+    }
+
+    // 2. 源MAC（不为空才加）
+    if (src_mac && *src_mac) {
+        //ptr += sprintf(ptr, " -m mac --mac-source %s", src_mac);
+    }
+
+    // 3. 协议（不为空）
+    if (protocol && *protocol != 0) {
+        ptr += sprintf(ptr, " -p %s", protocol);
+    }
+
+    // 4. 源端口（不为空才加，支持数组/范围）
+    if (src_port_str && *src_port_str) {
+        char *dash = strchr(src_port_str, '-');
+        if (dash != NULL) {
+            // 范围格式（如 5000-6001），转为iptables的 5000:6001
+            ptr += sprintf(ptr, " --sport %.*s:%s",
+                          (int)(dash - src_port_str), src_port_str, dash + 1);
+        } else {
+            // 单个端口
+            ptr += sprintf(ptr, " --sport %s", src_port_str);
+        }
+    }
+
+    // 5. 目的IP（不为空才加）
+    if (dst_ip && *dst_ip) {
+        ptr += sprintf(ptr, " -d %s", dst_ip);
+    }
+
+    // 6. 目的MAC（不为空才加）
+    if (dst_mac && *dst_mac) {
+        //ptr += sprintf(ptr, " -m mac --mac-destination %s", dst_mac);
+    }
+
+    // 7. 目的端口（不为空才加，支持数组/范围）
+    if (dst_port_str && *dst_port_str) {
+        char *dash = strchr(dst_port_str, '-');
+        if (dash != NULL) {
+            // 范围格式（如 5000-6001），转为iptables的 5000:6001
+            ptr += sprintf(ptr, " --dport %.*s:%s",
+                          (int)(dash - dst_port_str), dst_port_str, dash + 1);
+        } else {
+            // 单个端口
+            ptr += sprintf(ptr, " --dport %s", dst_port_str);
+        }
+    }
+
+    // 8. 策略：只有明确指定了才添加，不自动默认ACCEPT
+    if (policy && *policy) {
+        ptr += sprintf(ptr, " -j %s", policy);
+    }
+
+
+    // 打印规则（实际环境可使用system执行）
+    WTSL_LOG_INFO(MODULE_NAME, "生成规则：%s\n", cmd);
+    system(cmd);
+}
+
+
+
+void* wtsl_core_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
 {
 	(void)ctx;
 	(void)ph;
-	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Handling QoS rules",__FUNCTION__,__LINE__);
+	(void)ctx;
+	WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
 	
-	if (data == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+	cJSON *root =cJSON_Parse(data);
+	if(root == NULL){
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] data is not a vaild json data",__func__,__LINE__);
 		return NULL;
 	}
-	
-	cJSON *root = cJSON_Parse(data);
-	if (root == NULL) {
-		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
-		return NULL;
+
+    // ===================== 1. 解析源IP数组 =====================
+    cJSON *src_ip_arr = cJSON_GetObjectItemCaseSensitive(root, "src_ip");
+    int src_ip_count = 0;
+    char src_ips[16][MAX_ADDR_LEN] = {0};
+    if (cJSON_IsArray(src_ip_arr)) {
+        src_ip_count = cJSON_GetArraySize(src_ip_arr);
+        for (int i = 0; i < src_ip_count; i++) {
+            cJSON *item = cJSON_GetArrayItem(src_ip_arr, i);
+            if (cJSON_IsString(item)) {
+                strncpy(src_ips[i], item->valuestring, MAX_ADDR_LEN - 1);
+            }
+        }
+    } else {
+        src_ip_count = 1;
+        src_ips[0][0] = '\0'; // 不指定源IP
+    }
+
+    // ===================== 2. 解析源MAC数组 =====================
+    cJSON *src_mac_arr = cJSON_GetObjectItemCaseSensitive(root, "src_mac");
+    int src_mac_count = 0;
+    char src_macs[16][MAX_MAC_LEN] = {0};
+    if (cJSON_IsArray(src_mac_arr)) {
+        src_mac_count = cJSON_GetArraySize(src_mac_arr);
+        for (int i = 0; i < src_mac_count; i++) {
+            cJSON *item = cJSON_GetArrayItem(src_mac_arr, i);
+            if (cJSON_IsString(item)) {
+                strncpy(src_macs[i], item->valuestring, MAX_MAC_LEN - 1);
+            }
+        }
+    } else {
+        src_mac_count = 1;
+        src_macs[0][0] = '\0'; // 不指定源MAC
+    }
+
+    // ===================== 3. 解析源端口（根据type判断） =====================
+    char src_ports[16][MAX_PORT_STR_LEN] = {0};
+    int src_port_count = 1;
+    cJSON *src_port_type = cJSON_GetObjectItemCaseSensitive(root, "src_port_type");
+    cJSON *src_port = cJSON_GetObjectItemCaseSensitive(root, "src_port");
+
+    if (src_port_type && cJSON_IsString(src_port_type)) {
+        // 类型：array → 数字数组，逐个解析为单个端口
+        if (strcmp(src_port_type->valuestring, "array") == 0 && cJSON_IsArray(src_port)) {
+            src_port_count = cJSON_GetArraySize(src_port);
+            for (int i = 0; i < src_port_count; i++) {
+                cJSON *item = cJSON_GetArrayItem(src_port, i);
+                if (cJSON_IsNumber(item)) {
+                    snprintf(src_ports[i], MAX_PORT_STR_LEN, "%d", (int)item->valuedouble);
+                }
+            }
+        }
+        // 类型：range → 字符串范围（如 "5000-6001"），直接保存
+        else if (strcmp(src_port_type->valuestring, "range") == 0 && cJSON_IsString(src_port)) {
+            src_port_count = 1;
+            strncpy(src_ports[0], src_port->valuestring, MAX_PORT_STR_LEN - 1);
+        }
+    } else {
+        src_ports[0][0] = '\0'; // 无端口配置
+    }
+
+    // ===================== 4. 解析目的IP数组 =====================
+    cJSON *dst_ip_arr = cJSON_GetObjectItemCaseSensitive(root, "dst_ip");
+    int dst_ip_count = 0;
+    char dst_ips[16][MAX_ADDR_LEN] = {0};
+    if (cJSON_IsArray(dst_ip_arr)) {
+        dst_ip_count = cJSON_GetArraySize(dst_ip_arr);
+        for (int i = 0; i < dst_ip_count; i++) {
+            cJSON *item = cJSON_GetArrayItem(dst_ip_arr, i);
+            if (cJSON_IsString(item)) {
+                strncpy(dst_ips[i], item->valuestring, MAX_ADDR_LEN - 1);
+            }
+        }
+    } else {
+        dst_ip_count = 1;
+        dst_ips[0][0] = '\0'; // 不指定目的IP
+    }
+
+    // ===================== 5. 解析目的MAC数组 =====================
+    cJSON *dst_mac_arr = cJSON_GetObjectItemCaseSensitive(root, "dst_mac");
+    int dst_mac_count = 0;
+    char dst_macs[16][MAX_MAC_LEN] = {0};
+    if (cJSON_IsArray(dst_mac_arr)) {
+        dst_mac_count = cJSON_GetArraySize(dst_mac_arr);
+        for (int i = 0; i < dst_mac_count; i++) {
+            cJSON *item = cJSON_GetArrayItem(dst_mac_arr, i);
+            if (cJSON_IsString(item)) {
+                strncpy(dst_macs[i], item->valuestring, MAX_MAC_LEN - 1);
+            }
+        }
+    } else {
+        dst_mac_count = 1;
+        dst_macs[0][0] = '\0'; // 不指定目的MAC
+    }
+
+    // ===================== 6. 解析目的端口（根据type判断） =====================
+    char dst_ports[16][MAX_PORT_STR_LEN] = {0};
+    int dst_port_count = 1;
+    cJSON *dst_port_type = cJSON_GetObjectItemCaseSensitive(root, "dst_port_type");
+    cJSON *dst_port = cJSON_GetObjectItemCaseSensitive(root, "dst_port");
+
+    if (dst_port_type && cJSON_IsString(dst_port_type)) {
+        // 类型：array → 数字数组，逐个解析为单个端口
+        if (strcmp(dst_port_type->valuestring, "array") == 0 && cJSON_IsArray(dst_port)) {
+            dst_port_count = cJSON_GetArraySize(dst_port);
+            for (int i = 0; i < dst_port_count; i++) {
+                cJSON *item = cJSON_GetArrayItem(dst_port, i);
+                if (cJSON_IsNumber(item)) {
+                    snprintf(dst_ports[i], MAX_PORT_STR_LEN, "%d", (int)item->valuedouble);
+                }
+            }
+        }
+        // 类型：range → 字符串范围（如 "5000-6001"），直接保存
+        else if (strcmp(dst_port_type->valuestring, "range") == 0 && cJSON_IsString(dst_port)) {
+            dst_port_count = 1;
+            strncpy(dst_ports[0], dst_port->valuestring, MAX_PORT_STR_LEN - 1);
+        }
+    } else {
+        dst_ports[0][0] = '\0'; // 无端口配置
+    }
+
+    // ===================== 7. 解析协议数组 =====================
+    cJSON *protocol_arr = cJSON_GetObjectItemCaseSensitive(root, "protocol");
+    int proto_count = 0;
+    char protos[16][16] = {0};
+    if (cJSON_IsArray(protocol_arr)) {
+        proto_count = cJSON_GetArraySize(protocol_arr);
+        for (int i = 0; i < proto_count; i++) {
+            cJSON *item = cJSON_GetArrayItem(protocol_arr, i);
+            if (cJSON_IsString(item)) {
+                strncpy(protos[i], item->valuestring, 15);
+            }
+        }
+	} else {
+		proto_count = 1;
+		strcpy(protos[0], ""); // 默认所有协议
 	}
-	
-	cJSON *resp = cJSON_CreateObject();
-	
-	cJSON *j_action = cJSON_GetObjectItem(root, "action");
-	cJSON *j_type = cJSON_GetObjectItem(root, "type");
-	
-	const char *action = j_action ? j_action->valuestring : "show";
-	const char *obj_type = j_type ? j_type->valuestring : "qdisc";
-	
-	tc_handle_request(action, obj_type, root);
-	
-	// Get current rules status
-	cJSON *j_dev = cJSON_GetObjectItem(root, "device");
-	const char *dev = j_dev ? j_dev->valuestring : g_state.default_device;
-	
-	char cmd[1024];
-	FILE *fp;
-	
-	// qdiscs
-	snprintf(cmd, sizeof(cmd), "tc -s qdisc show dev %s", dev);
-	fp = popen(cmd, "r");
-	if (fp) {
-		cJSON *qdiscs = cJSON_CreateArray();
-		char linebuf[512];
-		while (fgets(linebuf, sizeof(linebuf), fp)) {
-			linebuf[strcspn(linebuf, "\n")] = 0;
-			if (strlen(linebuf) > 0) {
-				cJSON_AddItemToArray(qdiscs, cJSON_CreateString(linebuf));
-			}
-		}
-		pclose(fp);
-		cJSON_AddItemToObject(resp, "qdiscs", qdiscs);
-	}
-	
-	// classes
-	snprintf(cmd, sizeof(cmd), "tc -s class show dev %s", dev);
-	fp = popen(cmd, "r");
-	if (fp) {
-		cJSON *classes = cJSON_CreateArray();
-		char linebuf[512];
-		while (fgets(linebuf, sizeof(linebuf), fp)) {
-			linebuf[strcspn(linebuf, "\n")] = 0;
-			if (strlen(linebuf) > 0) {
-				cJSON_AddItemToArray(classes, cJSON_CreateString(linebuf));
-			}
-		}
-		pclose(fp);
-		cJSON_AddItemToObject(resp, "classes", classes);
-	}
-	
-	// filters
-	snprintf(cmd, sizeof(cmd), "tc -s filter show dev %s", dev);
-	fp = popen(cmd, "r");
-	if (fp) {
-		cJSON *filters = cJSON_CreateArray();
-		char linebuf[512];
-		while (fgets(linebuf, sizeof(linebuf), fp)) {
-			linebuf[strcspn(linebuf, "\n")] = 0;
-			if (strlen(linebuf) > 0) {
-				cJSON_AddItemToArray(filters, cJSON_CreateString(linebuf));
-			}
-		}
-		pclose(fp);
-		cJSON_AddItemToObject(resp, "filters", filters);
-	}
-	
-	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
-	
-	const char *json_str = cJSON_Print(resp);
-	WTSL_LOG_DEBUG(MODULE_NAME, "QoS response: %s", json_str);
-	
-	if (strlen(json_str) >= size) {
-		cJSON_Delete(resp);
-		cJSON_Delete(root);
-		return NULL;
-	}
-	
-	strncpy(data, json_str, size);
-	cJSON_Delete(resp);
-	cJSON_Delete(root);
-	return data;
+
+    // ===================== 8. 解析策略（修改点：不指定则为 NULL） =====================
+    const char *policy = NULL;
+    cJSON *policy_item = cJSON_GetObjectItemCaseSensitive(root, "policy");
+    if (policy_item && cJSON_IsString(policy_item)) {
+        policy = policy_item->valuestring;
+    }
+
+    // ===================== 9. 组合所有规则 =====================
+    for (int si = 0; si < src_ip_count; si++) {
+        for (int sm = 0; sm < src_mac_count; sm++) {
+            for (int sp = 0; sp < src_port_count; sp++) {
+                for (int di = 0; di < dst_ip_count; di++) {
+                    for (int dm = 0; dm < dst_mac_count; dm++) {
+                        for (int dp = 0; dp < dst_port_count; dp++) {
+                            for (int pr = 0; pr < proto_count; pr++) {
+                                build_iptables_rule(
+                                    src_ips[si],
+                                    src_macs[sm],
+                                    src_ports[sp],
+                                    dst_ips[di],
+                                    dst_macs[dm],
+                                    dst_ports[dp],
+                                    protos[pr],
+                                    policy
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+
+	return (void*)"success";
 }
+
+void* wtsl_core_get_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+    // 消除未使用参数警告
+    (void)ctx;
+    (void)ph;
+    (void)data;
+    (void)size;
+
+    WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s", size, (char *)data);
+
+    // 1. 创建最终要返回的 data 对象（也就是 line1/line2... 的父对象）
+    cJSON* data_obj = cJSON_CreateObject();
+    if (!data_obj) {
+        WTSL_LOG_ERROR(MODULE_NAME, "create data object failed");
+        return NULL;
+    }
+
+    // 2. 执行 iptables 命令，读取输出
+    FILE* fp = popen("iptables-save -t filter | grep \"^-A FORWARD\"", "r");
+    if (fp == NULL)
+    {
+        WTSL_LOG_ERROR(MODULE_NAME, "exec command failed");
+        cJSON_Delete(data_obj); // 出错时释放已创建的对象
+        return NULL;
+    }
+
+    char buffer[256] = {0};
+    int line_num = 1; // 用来生成 line1, line2, line3... 的 key
+    while (fgets(buffer, sizeof(buffer), fp))
+    {
+        // 去掉 fgets 读到的换行符 \n
+        size_t len = strlen(buffer);
+        if (len > 0 && buffer[len - 1] == '\n') {
+            buffer[len - 1] = '\0';
+        }
+
+        // 生成动态 key："line1", "line2", "line3"...
+        char key_buf[32] = {0};
+        snprintf(key_buf, sizeof(key_buf), "line%d", line_num);
+
+        // 添加到 data 对象中
+        cJSON_AddStringToObject(data_obj, key_buf, buffer);
+
+        WTSL_LOG_INFO(MODULE_NAME, "%s: %s", key_buf, buffer);
+        line_num++;
+    }
+
+    // 关闭管道并检查错误
+    int pclose_ret = pclose(fp);
+    if (pclose_ret == -1) {
+        WTSL_LOG_ERROR(MODULE_NAME, "pclose failed");
+        cJSON_Delete(data_obj);
+        return NULL;
+    }
+
+    // 3. 把 data 对象序列化成 JSON 字符串
+    char* json_str = cJSON_Print(data_obj);
+    if (!json_str)
+    {
+        WTSL_LOG_ERROR(MODULE_NAME, "cJSON_Print failed");
+        cJSON_Delete(data_obj);
+        return NULL;
+    }
+
+    // 释放 cJSON 对象，json_str 会返回给调用方，由调用方 free
+    cJSON_Delete(data_obj);
+    return json_str;
+}
+
+
+void* wtsl_core_clear_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	(void)ctx;
+	WTSL_LOG_DEBUG(MODULE_NAME, "Received data to set,size:%d,data:%s",size,(char *)data);
+	
+	system("iptables -F");		
+	
+	return (void*)"success";
+}
+
+
+

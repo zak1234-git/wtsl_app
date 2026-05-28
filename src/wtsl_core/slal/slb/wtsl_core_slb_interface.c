@@ -2301,7 +2301,7 @@ void param_default(void)
 	strcpy(node->net_manage_ip, "192.168.1.1");
 	node->auto_join_net_flag = 0;
 
-	strcpy(node->bridge_interfaces[0], "wt_vap0");
+	strcpy(node->bridge_interfaces[0], NET_VAP_NAME);
 	strcpy(node->bridge_interfaces[1], "usb0");
 	strcpy(node->bridge_interfaces[2], "eth0");
 	node->bridge_interface_num = 3;
@@ -2325,6 +2325,8 @@ void param_default(void)
 
 	//其他参数
 	node->sle_enable = 1;
+	node->trans_tcp_port = 9981;
+	node->trans_udp_port = 9982;
 }
 
 int set_node() 
