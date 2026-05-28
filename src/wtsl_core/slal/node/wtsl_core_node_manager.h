@@ -197,12 +197,15 @@ typedef void * (WTSLNodeCallBack)(void* pNode,void *data,unsigned int size,UserC
     X(set_sle_announce_id, PERMISSION_WRITE, wtsl_core_set_announce_id,38)\
     X(qos_get_status, PERMISSION_READ, wtsl_core_qos_get_status,39)\
     X(qos_switch, PERMISSION_WRITE, wtsl_core_qos_switch, 40)\
-    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 41)\
-    X(set_sle_trans_config, PERMISSION_WRITE, wtsl_core_set_sle_trans_config, 42)\
-    X(get_sle_trans_config, PERMISSION_WRITE, wtsl_core_get_sle_trans_config, 43)\
-    X(acl_rules, PERMISSION_WRITE, wtsl_core_acl_rules, 44)\
-    X(get_acl_rules, PERMISSION_WRITE, wtsl_core_get_acl_rules, 45)\
-    X(clear_acl_rules, PERMISSION_WRITE, wtsl_core_clear_acl_rules, 46)
+    X(qos_get_rules, PERMISSION_READ, wtsl_core_qos_get_rules, 41)\
+    X(qos_set_rules, PERMISSION_WRITE, wtsl_core_qos_set_rules, 42)\
+    X(config_vap0_mac, PERMISSION_WRITE, wtsl_core_config_vap0_mac, 43)\
+    X(set_sle_trans_config, PERMISSION_WRITE, wtsl_core_set_sle_trans_config, 44)\
+    X(get_sle_trans_config, PERMISSION_WRITE, wtsl_core_get_sle_trans_config, 45)\
+    X(acl_get_status, PERMISSION_READ, wtsl_core_acl_get_status, 46)\
+    X(acl_switch, PERMISSION_WRITE, wtsl_core_acl_switch, 47)\
+    X(acl_get_rules, PERMISSION_READ, wtsl_core_acl_get_rules, 48)\
+    X(acl_set_rules, PERMISSION_WRITE, wtsl_core_acl_set_rules, 49)
     
 // ------------------------------
 // 使用X宏生成接口表结构体

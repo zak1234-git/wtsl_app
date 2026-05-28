@@ -75,8 +75,20 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
     cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(params, "device");
     const char *dev = (j_dev && cJSON_IsString(j_dev)) ? j_dev->valuestring : g_state.default_device;
 
-    // 基础命令： tc <action> <type> dev <dev>
-    snprintf(cmd, sizeof(cmd), "tc %s %s dev %s", obj_type, action, dev);
+    WTSL_LOG_INFO(MODULE_NAME, "[TC] action=%s, obj_type=%s, dev=%s", action, obj_type, dev);
+
+    // 基础命令：tc <action> <type> dev <dev>
+    if (strcmp(action, "delete") == 0 || strcmp(action, "del") == 0) {
+        snprintf(cmd, sizeof(cmd), "tc qdisc del dev %s", dev);
+    } else if (strcmp(obj_type, "qdisc") == 0 && strcmp(action, "add") == 0) {
+        snprintf(cmd, sizeof(cmd), "tc qdisc add dev %s", dev);
+    } else if (strcmp(obj_type, "class") == 0 && strcmp(action, "add") == 0) {
+        snprintf(cmd, sizeof(cmd), "tc class add dev %s", dev);
+    } else if (strcmp(obj_type, "filter") == 0 && strcmp(action, "add") == 0) {
+        snprintf(cmd, sizeof(cmd), "tc filter add dev %s", dev);
+    } else {
+        snprintf(cmd, sizeof(cmd), "tc %s %s dev %s", obj_type, action, dev);
+    }
 
     // 公共参数
     cJSON *j_parent = cJSON_GetObjectItemCaseSensitive(params, "parent");
@@ -84,17 +96,59 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
     cJSON *j_kind = cJSON_GetObjectItemCaseSensitive(params, "kind");
     cJSON *j_flowid = cJSON_GetObjectItemCaseSensitive(params, "flowid");
     cJSON *j_args = cJSON_GetObjectItemCaseSensitive(params, "args");
+    cJSON *j_classid = cJSON_GetObjectItemCaseSensitive(params, "classid");
+    cJSON *j_protocol = cJSON_GetObjectItemCaseSensitive(params, "protocol");
+    cJSON *j_prio = cJSON_GetObjectItemCaseSensitive(params, "prio");
 
     if (strcmp(action, "delete") == 0 || strcmp(action, "del") == 0) {
         if (j_parent) { strcat(cmd, " parent "); strcat(cmd, j_parent->valuestring); }
         if (j_handle) { strcat(cmd, " handle "); strcat(cmd, j_handle->valuestring); }
     } else {
-        if (j_parent) { strcat(cmd, " parent "); strcat(cmd, j_parent->valuestring); }
-        if (j_handle) { strcat(cmd, " handle "); strcat(cmd, j_handle->valuestring); }
+        // qdisc 需要 root 或 parent 关键字
+        if (strcmp(obj_type, "qdisc") == 0) {
+            if (j_parent) {
+                // 子 qdisc：使用 parent
+                strcat(cmd, " parent ");
+                strcat(cmd, j_parent->valuestring);
+            } else {
+                // 根 qdisc：使用 root
+                strcat(cmd, " root");
+            }
+        } else if (j_parent) {
+            strcat(cmd, " parent ");
+            strcat(cmd, j_parent->valuestring);
+        }
+        
+        // classid 参数（class 必需，在 handle 之前）
+        if (j_classid && strcmp(obj_type, "class") == 0) {
+            strcat(cmd, " classid ");
+            strcat(cmd, j_classid->valuestring);
+        } else if (strcmp(obj_type, "class") == 0 && !j_classid) {
+            WTSL_LOG_ERROR(MODULE_NAME, "[TC] class without classid!");
+        }
+        
+        // handle 参数（只用于 qdisc）
+        if (j_handle && strcmp(obj_type, "qdisc") == 0) {
+            strcat(cmd, " handle ");
+            strcat(cmd, j_handle->valuestring);
+        }
 
         if (j_kind && (strcmp(action, "add") == 0 || strcmp(action, "replace") == 0)) {
             strcat(cmd, " ");
             strcat(cmd, j_kind->valuestring);
+        }
+        
+        // filter 特有参数：protocol 和 prio 在 kind 之后
+        if (strcmp(obj_type, "filter") == 0) {
+            if (j_protocol) {
+                strcat(cmd, " ");
+                strcat(cmd, j_protocol->valuestring);
+            }
+            if (j_prio) {
+                char prio_buf[16];
+                snprintf(prio_buf, sizeof(prio_buf), " prio %d", j_prio->valueint);
+                strcat(cmd, prio_buf);
+            }
         }
 
         // 处理动态 Args
@@ -112,20 +166,28 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
 
                 if (val) {
                     strcat(cmd, " ");
-                    strcat(cmd, item->string);
-                    strcat(cmd, " ");
-                    strcat(cmd, val);
+                    // filter 的 match 参数特殊处理
+                    if (strcmp(obj_type, "filter") == 0 && strcmp(item->string, "match") == 0) {
+                        strcat(cmd, "match ");  // match 关键字
+                        strcat(cmd, val);       // match 值（如 "ip dst 192.168.99.2/32"）
+                    } else {
+                        strcat(cmd, item->string);
+                        strcat(cmd, " ");
+                        strcat(cmd, val);
+                    }
                 }
             }
         }
 
-        // Filter 特有参数
+        // Filter 特有参数：flowid 在最后
         if (strcmp(obj_type, "filter") == 0 && j_flowid) {
             strcat(cmd, " flowid ");
             strcat(cmd, j_flowid->valuestring);
         }
     }
 
+    WTSL_LOG_INFO(MODULE_NAME, "[TC] CMD: %s", cmd);
+    
     int ret = ex_command(cmd);
     if (ret == 0 && (strcmp(action, "add") == 0 || strcmp(action, "replace") == 0)) {
         record_rule(cmd);
@@ -183,7 +245,7 @@ int iptables_handle_request(const char *action, const char *chain, cJSON *params
         }
     }
 
-    // 处理Args (映射到 iptables 参数)
+    // 处理 Args (映射到 iptables 参数)
     cJSON *j_args = cJSON_GetObjectItemCaseSensitive(params, "args");
     if (j_args && cJSON_IsObject(j_args)) {
         cJSON *item;

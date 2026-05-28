@@ -90,17 +90,24 @@ void* wtsl_core_qos_get_status(void* ph, void *data, unsigned int size, UserCont
 
 void* wtsl_core_qos_switch(void* ph, void *data, unsigned int size, UserContext *ctx);
 
+void* wtsl_core_qos_get_rules(void* ph, void *data, unsigned int size, UserContext *ctx);  // GET 请求
+
+void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserContext *ctx);  // POST 请求
+
 void* wtsl_core_config_vap0_mac(void* ph, void *data, unsigned int size, UserContext *ctx);
 
 void* wtsl_core_set_sle_trans_config(void* ph, void *data, unsigned int size, UserContext *ctx);
 
 void* wtsl_core_get_sle_trans_config(void* ph, void *data, unsigned int size, UserContext *ctx);
 
-void* wtsl_core_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
+// ACL/Firewall callbacks
+void* wtsl_core_acl_get_status(void* ph, void *data, unsigned int size, UserContext *ctx);
 
-void* wtsl_core_get_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
+void* wtsl_core_acl_switch(void* ph, void *data, unsigned int size, UserContext *ctx);
 
-void* wtsl_core_clear_acl_rules(void* ph, void *data, unsigned int size, UserContext *ctx);
+void* wtsl_core_acl_get_rules(void* ph, void *data, unsigned int size, UserContext *ctx);  // GET 请求
+
+void* wtsl_core_acl_set_rules(void* ph, void *data, unsigned int size, UserContext *ctx);  // POST 请求
 // ------------------------------
 // X宏定义：集中管理所有函数配置
 // ------------------------------

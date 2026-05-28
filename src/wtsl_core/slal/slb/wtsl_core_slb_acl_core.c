@@ -114,18 +114,23 @@ static int build_iptables_cmd(char *cmd, size_t cmd_size, const char *action, co
         strcat(cmd, j_out->valuestring);
     }
     
-    // 源端口
-    cJSON *j_sport = cJSON_GetObjectItemCaseSensitive(params, "source_port");
-    if (j_sport && cJSON_IsString(j_sport)) {
-        strcat(cmd, " --sport ");
-        strcat(cmd, j_sport->valuestring);
-    }
-    
-    // 目标端口
+    // 端口处理（需要先添加 -m tcp 模块）
     cJSON *j_dport = cJSON_GetObjectItemCaseSensitive(params, "dest_port");
-    if (j_dport && cJSON_IsString(j_dport)) {
-        strcat(cmd, " --dport ");
-        strcat(cmd, j_dport->valuestring);
+    cJSON *j_sport = cJSON_GetObjectItemCaseSensitive(params, "source_port");
+    
+    if (j_dport || j_sport) {
+        // 添加 tcp 模块支持
+        strcat(cmd, " -m tcp");
+        
+        if (j_sport && cJSON_IsString(j_sport)) {
+            strcat(cmd, " --sport ");
+            strcat(cmd, j_sport->valuestring);
+        }
+        
+        if (j_dport && cJSON_IsString(j_dport)) {
+            strcat(cmd, " --dport ");
+            strcat(cmd, j_dport->valuestring);
+        }
     }
     
     // 动作目标
@@ -197,42 +202,26 @@ int acl_toggle_switch(bool enable) {
     char cmd[ACL_MAX_CMD_LEN];
     
     if (!enable) {
-        WTSL_LOG_INFO(MODULE_NAME, "[ACL] Disabling firewall...");
+        WTSL_LOG_INFO(MODULE_NAME, "[ACL] Disabling FORWARD firewall...");
         
-        // 清空所有链的规则
-        snprintf(cmd, sizeof(cmd), "iptables -w -F INPUT");
-        ex_command(cmd);
-        snprintf(cmd, sizeof(cmd), "iptables -w -F OUTPUT");
-        ex_command(cmd);
+        // 只清空 FORWARD 链的规则
         snprintf(cmd, sizeof(cmd), "iptables -w -F FORWARD");
         ex_command(cmd);
         
-        // 设置默认策略为 ACCEPT
-        snprintf(cmd, sizeof(cmd), "iptables -w -P INPUT ACCEPT");
-        ex_command(cmd);
-        snprintf(cmd, sizeof(cmd), "iptables -w -P OUTPUT ACCEPT");
-        ex_command(cmd);
+        // 设置 FORWARD 默认策略为 ACCEPT
         snprintf(cmd, sizeof(cmd), "iptables -w -P FORWARD ACCEPT");
         ex_command(cmd);
         
         g_acl_state.enabled = false;
     } else {
-        WTSL_LOG_INFO(MODULE_NAME, "[ACL] Enabling firewall...");
+        WTSL_LOG_INFO(MODULE_NAME, "[ACL] Enabling FORWARD firewall...");
         
-        // 设置默认策略为 DROP
-        snprintf(cmd, sizeof(cmd), "iptables -w -P INPUT DROP");
-        ex_command(cmd);
+        // 设置 FORWARD 默认策略为 DROP
         snprintf(cmd, sizeof(cmd), "iptables -w -P FORWARD DROP");
         ex_command(cmd);
-        snprintf(cmd, sizeof(cmd), "iptables -w -P OUTPUT ACCEPT");
-        ex_command(cmd);
         
-        // 允许本地回环
-        snprintf(cmd, sizeof(cmd), "iptables -w -A INPUT -i lo -j ACCEPT");
-        ex_command(cmd);
-        
-        // 允许已建立的连接
-        snprintf(cmd, sizeof(cmd), "iptables -w -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true");
+        // 允许已建立的连接（FORWARD 链）
+        snprintf(cmd, sizeof(cmd), "iptables -w -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true");
         ex_command(cmd);
         
         g_acl_state.enabled = true;
@@ -249,6 +238,14 @@ int acl_handle_request(const char *action, const char *chain, cJSON *params, cJS
     int ret = 0;
     
     WTSL_LOG_INFO(MODULE_NAME, "[ACL] action=%s, chain=%s", action, chain);
+    
+    // 限制只能操作 FORWARD 链
+    if (strcmp(chain, "FORWARD") != 0) {
+        WTSL_LOG_WARNING(MODULE_NAME, "[ACL] Only FORWARD chain is supported, ignoring chain: %s", chain);
+        cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(false));
+        cJSON_AddItemToObject(resp, "error", cJSON_CreateString("Only FORWARD chain is supported"));
+        return -1;
+    }
     
     // 特殊处理：list 动作
     if (strcmp(action, "list") == 0 || strcmp(action, "get") == 0) {

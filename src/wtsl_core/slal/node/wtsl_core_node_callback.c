@@ -369,12 +369,11 @@ void* wtsl_core_qos_switch(void* phandle, void *data, unsigned int size, UserCon
 		return NULL;
 	}
 	
-	cJSON* type = cJSON_GetObjectItemCaseSensitive(root,"enabled");
-	if(type != NULL && cJSON_IsBool(type)) {
-		bool temp_type = cJSON_IsTrue(type) ? true : false;
-		ret = qos_toggle_switch(temp_type);
+	cJSON* j_enabled = cJSON_GetObjectItemCaseSensitive(root,"enabled");
+	if(j_enabled != NULL && cJSON_IsBool(j_enabled)) {
+		ret = qos_toggle_switch(j_enabled->valueint);  // ✅ 修复：传递用户传入的 enabled 值
 		if (ret != 0) {
-			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]data paraser error",__FUNCTION__,__LINE__);
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d]qos toggle switch error",__FUNCTION__,__LINE__);
 			return NULL;
 		}
 	}
@@ -2801,3 +2800,366 @@ void* wtsl_core_clear_acl_rules(void* ph, void *data, unsigned int size, UserCon
 
 
 
+
+/* ==================== ACL/Firewall Callbacks ==================== */
+
+#include "wtsl_core_slb_acl_core.h"
+
+void* wtsl_core_acl_get_status(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting ACL status",__FUNCTION__,__LINE__);
+	
+	cJSON *resp = cJSON_CreateObject();
+	acl_get_status(resp);
+	
+	const char *json_str = cJSON_Print(resp);
+	WTSL_LOG_DEBUG(MODULE_NAME, "ACL status: %s", json_str);
+	
+	if (strlen(json_str) >= size) {
+		cJSON_Delete(resp);
+		return NULL;
+	}
+	
+	strncpy(data, json_str, size);
+	cJSON_Delete(resp);
+	return data;
+}
+
+void* wtsl_core_acl_switch(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Setting ACL switch",__FUNCTION__,__LINE__);
+	
+	if (data == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+	
+	cJSON *root = cJSON_Parse(data);
+	if (root == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
+		return NULL;
+	}
+	
+	cJSON *j_enabled = cJSON_GetObjectItem(root, "enabled");
+	if (j_enabled && cJSON_IsBool(j_enabled)) {
+		acl_toggle_switch(j_enabled->valueint);
+	}
+	
+	cJSON_Delete(root);
+	return (void*)"acl_switch_success";
+}
+
+/* ==================== ACL GET 请求 - 获取规则 ==================== */
+
+void* wtsl_core_acl_get_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	(void)size;
+	
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting ACL rules",__FUNCTION__,__LINE__);
+	
+	cJSON *resp = cJSON_CreateObject();
+	const char *chain = "FORWARD";  // 只支持 FORWARD 链
+	
+	char cmd[4096];
+	FILE *fp;
+	
+	// 使用 iptables -S 获取规则
+	snprintf(cmd, sizeof(cmd), "iptables -w -S %s", chain);
+	fp = popen(cmd, "r");
+	if (fp == NULL) {
+		cJSON_AddItemToObject(resp, "error", cJSON_CreateString("Failed to execute iptables"));
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] Failed to execute: %s",__FUNCTION__,__LINE__,cmd);
+	} else {
+		cJSON *rules_array = cJSON_CreateArray();
+		char line[1024];
+		while (fgets(line, sizeof(line), fp) != NULL) {
+			// 跳过 -P (policy) 行
+			if (strncmp(line, "-P", 2) == 0) continue;
+			
+			// 去掉换行符
+			line[strcspn(line, "\n")] = 0;
+			WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d] Rule: %s",__FUNCTION__,__LINE__,line);
+			cJSON_AddItemToArray(rules_array, cJSON_CreateString(line));
+		}
+		pclose(fp);
+		cJSON_AddItemToObject(resp, "rules", rules_array);
+	}
+	
+	cJSON_AddItemToObject(resp, "chain", cJSON_CreateString(chain));
+	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
+	
+	const char *json_str = cJSON_Print(resp);
+	size_t json_len = strlen(json_str);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] ACL GET response: %s, len=%zu",__FUNCTION__,__LINE__,json_str,json_len);
+	
+	// 安全复制响应
+	if (json_len < 8192) {
+		memcpy((char *)data, json_str, json_len + 1);
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+		memcpy((char *)data, json_str, 8191);
+		((char *)data)[8191] = '\0';
+	}
+	
+	cJSON_free((void *)json_str);
+	cJSON_Delete(resp);
+	
+	return (void *)data;
+}
+
+/* ==================== ACL POST 请求 - 管理规则 ==================== */
+
+void* wtsl_core_acl_set_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Setting ACL rules",__FUNCTION__,__LINE__);
+	
+	if (data == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+	
+	cJSON *root = cJSON_Parse(data);
+	if (root == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
+		return NULL;
+	}
+	
+	cJSON *resp = cJSON_CreateObject();
+	
+	cJSON *j_action = cJSON_GetObjectItem(root, "action");
+	cJSON *j_chain = cJSON_GetObjectItem(root, "chain");
+	
+	const char *action = j_action ? j_action->valuestring : "list";
+	const char *chain = j_chain ? j_chain->valuestring : "FORWARD";
+	
+	acl_handle_request(action, chain, root, resp);
+	
+	const char *json_str = cJSON_Print(resp);
+	size_t json_len = strlen(json_str);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] ACL POST response len=%zu",__FUNCTION__,__LINE__,json_len);
+	
+	// 安全复制响应
+	if (json_len < 8192) {
+		memcpy((char *)data, json_str, json_len + 1);
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+		memcpy((char *)data, json_str, 8191);
+		((char *)data)[8191] = '\0';
+	}
+	
+	cJSON_free((void *)json_str);
+	cJSON_Delete(resp);
+	cJSON_Delete(root);
+	
+	return (void *)data;
+}
+
+/* ==================== Enhanced QoS Callbacks ==================== */
+
+/* ==================== QoS GET 请求 - 获取规则 ==================== */
+
+void* wtsl_core_qos_get_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	(void)size;
+	
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting QoS rules",__FUNCTION__,__LINE__);
+	
+	cJSON *resp = cJSON_CreateObject();
+	const char *dev = g_state.default_device;
+	
+	char cmd[1024];
+	FILE *fp;
+	
+	// qdiscs - 先创建数组，即使 popen 失败也返回空数组
+	cJSON *qdiscs = cJSON_CreateArray();
+	snprintf(cmd, sizeof(cmd), "tc -s qdisc show dev %s", dev);
+	fp = popen(cmd, "r");
+	if (fp) {
+		char linebuf[512];
+		while (fgets(linebuf, sizeof(linebuf), fp)) {
+			linebuf[strcspn(linebuf, "\n")] = 0;
+			if (strlen(linebuf) > 0) {
+				cJSON_AddItemToArray(qdiscs, cJSON_CreateString(linebuf));
+			}
+		}
+		pclose(fp);
+	}
+	cJSON_AddItemToObject(resp, "qdiscs", qdiscs);
+	
+	// classes - 先创建数组，即使 popen 失败也返回空数组
+	cJSON *classes = cJSON_CreateArray();
+	snprintf(cmd, sizeof(cmd), "tc -s class show dev %s", dev);
+	fp = popen(cmd, "r");
+	if (fp) {
+		char linebuf[512];
+		while (fgets(linebuf, sizeof(linebuf), fp)) {
+			linebuf[strcspn(linebuf, "\n")] = 0;
+			if (strlen(linebuf) > 0) {
+				cJSON_AddItemToArray(classes, cJSON_CreateString(linebuf));
+			}
+		}
+		pclose(fp);
+	}
+	cJSON_AddItemToObject(resp, "classes", classes);
+	
+	// filters - 先创建数组，即使 popen 失败也返回空数组
+	cJSON *filters = cJSON_CreateArray();
+	snprintf(cmd, sizeof(cmd), "tc -s filter show dev %s", dev);
+	fp = popen(cmd, "r");
+	if (fp) {
+		char linebuf[512];
+		while (fgets(linebuf, sizeof(linebuf), fp)) {
+			linebuf[strcspn(linebuf, "\n")] = 0;
+			if (strlen(linebuf) > 0) {
+				cJSON_AddItemToArray(filters, cJSON_CreateString(linebuf));
+			}
+		}
+		pclose(fp);
+	}
+	cJSON_AddItemToObject(resp, "filters", filters);
+	
+	cJSON_AddItemToObject(resp, "device", cJSON_CreateString(dev));
+	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
+	
+	const char *json_str = cJSON_Print(resp);
+	size_t json_len = strlen(json_str);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] QoS GET response len=%zu",__FUNCTION__,__LINE__,json_len);
+	
+	// 安全复制响应
+	if (json_len < 8192) {
+		memcpy((char *)data, json_str, json_len + 1);
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+		memcpy((char *)data, json_str, 8191);
+		((char *)data)[8191] = '\0';
+	}
+	
+	cJSON_free((void *)json_str);
+	cJSON_Delete(resp);
+	
+	return (void *)data;
+}
+
+/* ==================== QoS POST 请求 - 管理规则 ==================== */
+
+void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserContext *ctx)
+{
+	(void)ctx;
+	(void)ph;
+	
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Setting QoS rules",__FUNCTION__,__LINE__);
+	
+	if (data == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "data is NULL");
+		return NULL;
+	}
+	
+	cJSON *root = cJSON_Parse(data);
+	if (root == NULL) {
+		WTSL_LOG_ERROR(MODULE_NAME, "Invalid JSON data");
+		return NULL;
+	}
+	
+	cJSON *resp = cJSON_CreateObject();
+	
+	cJSON *j_action = cJSON_GetObjectItem(root, "action");
+	cJSON *j_type = cJSON_GetObjectItem(root, "type");
+	
+	const char *action = j_action ? j_action->valuestring : "show";
+	const char *obj_type = j_type ? j_type->valuestring : "qdisc";
+	
+	int ret = tc_handle_request(action, obj_type, root);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] tc_handle_request ret=%d",__FUNCTION__,__LINE__,ret);
+	
+	// // 获取当前规则状态（用于响应）
+	// cJSON *j_dev = cJSON_GetObjectItem(root, "device");
+	// const char *dev = j_dev ? j_dev->valuestring : g_state.default_device;
+	
+	// char cmd[1024];
+	// FILE *fp;
+	
+	// // qdiscs - 先创建数组，即使 popen 失败也返回空数组
+	// cJSON *qdiscs = cJSON_CreateArray();
+	// snprintf(cmd, sizeof(cmd), "tc -s qdisc show dev %s", dev);
+	// fp = popen(cmd, "r");
+	// if (fp) {
+	// 	char linebuf[512];
+	// 	while (fgets(linebuf, sizeof(linebuf), fp)) {
+	// 		linebuf[strcspn(linebuf, "\n")] = 0;
+	// 		if (strlen(linebuf) > 0) {
+	// 			cJSON_AddItemToArray(qdiscs, cJSON_CreateString(linebuf));
+	// 		}
+	// 	}
+	// 	pclose(fp);
+	// }
+	// cJSON_AddItemToObject(resp, "qdiscs", qdiscs);
+	
+	// // classes - 先创建数组，即使 popen 失败也返回空数组
+	// cJSON *classes = cJSON_CreateArray();
+	// snprintf(cmd, sizeof(cmd), "tc -s class show dev %s", dev);
+	// fp = popen(cmd, "r");
+	// if (fp) {
+	// 	char linebuf[512];
+	// 	while (fgets(linebuf, sizeof(linebuf), fp)) {
+	// 		linebuf[strcspn(linebuf, "\n")] = 0;
+	// 		if (strlen(linebuf) > 0) {
+	// 			cJSON_AddItemToArray(classes, cJSON_CreateString(linebuf));
+	// 		}
+	// 	}
+	// 	pclose(fp);
+	// }
+	// cJSON_AddItemToObject(resp, "classes", classes);
+	
+	// // filters - 先创建数组，即使 popen 失败也返回空数组
+	// cJSON *filters = cJSON_CreateArray();
+	// snprintf(cmd, sizeof(cmd), "tc -s filter show dev %s", dev);
+	// fp = popen(cmd, "r");
+	// if (fp) {
+	// 	char linebuf[512];
+	// 	while (fgets(linebuf, sizeof(linebuf), fp)) {
+	// 		linebuf[strcspn(linebuf, "\n")] = 0;
+	// 		if (strlen(linebuf) > 0) {
+	// 			cJSON_AddItemToArray(filters, cJSON_CreateString(linebuf));
+	// 		}
+	// 	}
+	// 	pclose(fp);
+	// }
+	// cJSON_AddItemToObject(resp, "filters", filters);
+	
+	// if (ret == 0) {
+	// 	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
+	// } else {
+	// 	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(false));
+	// 	cJSON_AddItemToObject(resp, "error", cJSON_CreateString("tc command execution failed"));
+	// }
+	
+	// const char *json_str = cJSON_Print(resp);
+	// size_t json_len = strlen(json_str);
+	// WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] QoS POST response len=%zu",__FUNCTION__,__LINE__,json_len);
+	
+	// // 安全复制响应
+	// if (json_len < 8192) {
+	// 	memcpy((char *)data, json_str, json_len + 1);
+	// } else {
+	// 	WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+	// 	memcpy((char *)data, json_str, 8191);
+	// 	((char *)data)[8191] = '\0';
+	// }
+	
+	// cJSON_free((void *)json_str);
+	cJSON_Delete(resp);
+	cJSON_Delete(root);
+	
+	return (void *)"success";
+}
