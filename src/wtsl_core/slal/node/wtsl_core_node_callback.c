@@ -3079,10 +3079,30 @@ void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserConte
 	const char *action = j_action ? j_action->valuestring : "show";
 	const char *obj_type = j_type ? j_type->valuestring : "qdisc";
 	
-	int ret = tc_handle_request(action, obj_type, root);
+	char err_buf[512];
+	int ret = tc_handle_request(action, obj_type, root, err_buf, sizeof(err_buf));
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] tc_handle_request ret=%d",__FUNCTION__,__LINE__,ret);
 	
-	// // 获取当前规则状态（用于响应）
+	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(ret == 0));
+	if (ret != 0) {
+		const char *err_msg = (err_buf[0] != '\0') ? err_buf : "tc command execution failed";
+		cJSON_AddItemToObject(resp, "error", cJSON_CreateString(err_msg));
+	}
+	
+	const char *json_str = cJSON_Print(resp);
+	size_t json_len = strlen(json_str);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] QoS POST response len=%zu",__FUNCTION__,__LINE__,json_len);
+	
+	// 安全复制响应
+	if (json_len < 8192) {
+		memcpy((char *)data, json_str, json_len + 1);
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+		memcpy((char *)data, json_str, 8191);
+		((char *)data)[8191] = '\0';
+	}
+	
+	cJSON_free((void *)json_str);
 	// cJSON *j_dev = cJSON_GetObjectItem(root, "device");
 	// const char *dev = j_dev ? j_dev->valuestring : g_state.default_device;
 	
@@ -3161,5 +3181,5 @@ void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserConte
 	cJSON_Delete(resp);
 	cJSON_Delete(root);
 	
-	return (void *)"success";
+	return (void *)data;
 }
