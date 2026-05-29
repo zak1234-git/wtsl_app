@@ -2864,35 +2864,35 @@ void* wtsl_core_acl_get_rules(void* ph, void *data, unsigned int size, UserConte
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting ACL rules",__FUNCTION__,__LINE__);
 	
 	cJSON *resp = cJSON_CreateObject();
-	const char *chain = "FORWARD";  // 只支持 FORWARD 链
-	
+	const char *chains[] = {"INPUT", "OUTPUT", "FORWARD"};
 	char cmd[4096];
-	FILE *fp;
 	
-	// 使用 iptables -S 获取规则
-	snprintf(cmd, sizeof(cmd), "iptables -w -S %s", chain);
-	fp = popen(cmd, "r");
-	if (fp == NULL) {
-		cJSON_AddItemToObject(resp, "error", cJSON_CreateString("Failed to execute iptables"));
-		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] Failed to execute: %s",__FUNCTION__,__LINE__,cmd);
-	} else {
+	for (int i = 0; i < 3; i++) {
+		const char *chain = chains[i];
+		FILE *fp;
 		cJSON *rules_array = cJSON_CreateArray();
-		char line[1024];
-		while (fgets(line, sizeof(line), fp) != NULL) {
-			// 跳过 -P (policy) 行
-			if (strncmp(line, "-P", 2) == 0) continue;
-			
-			// 去掉换行符
-			line[strcspn(line, "\n")] = 0;
-			WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d] Rule: %s",__FUNCTION__,__LINE__,line);
-			cJSON_AddItemToArray(rules_array, cJSON_CreateString(line));
+
+		snprintf(cmd, sizeof(cmd), "iptables -w -S %s", chain);
+		fp = popen(cmd, "r");
+		if (fp == NULL) {
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] Failed to execute: %s",__FUNCTION__,__LINE__,cmd);
+		} else {
+			char line[1024];
+			while (fgets(line, sizeof(line), fp) != NULL) {
+				// 跳过 -P (policy) 行
+				if (strncmp(line, "-P", 2) == 0) continue;
+				
+				// 去掉换行符
+				line[strcspn(line, "\n")] = 0;
+				WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d] %s Rule: %s",__FUNCTION__,__LINE__,chain,line);
+				cJSON_AddItemToArray(rules_array, cJSON_CreateString(line));
+			}
+			pclose(fp);
 		}
-		pclose(fp);
-		cJSON_AddItemToObject(resp, "rules", rules_array);
+
+		cJSON_AddItemToObject(resp, chain, rules_array);
 	}
-	
-	cJSON_AddItemToObject(resp, "chain", cJSON_CreateString(chain));
-	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
+
 	
 	const char *json_str = cJSON_Print(resp);
 	size_t json_len = strlen(json_str);
