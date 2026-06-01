@@ -2864,35 +2864,35 @@ void* wtsl_core_acl_get_rules(void* ph, void *data, unsigned int size, UserConte
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] Getting ACL rules",__FUNCTION__,__LINE__);
 	
 	cJSON *resp = cJSON_CreateObject();
-	const char *chain = "FORWARD";  // 只支持 FORWARD 链
-	
+	const char *chains[] = {"INPUT", "OUTPUT", "FORWARD"};
 	char cmd[4096];
-	FILE *fp;
 	
-	// 使用 iptables -S 获取规则
-	snprintf(cmd, sizeof(cmd), "iptables -w -S %s", chain);
-	fp = popen(cmd, "r");
-	if (fp == NULL) {
-		cJSON_AddItemToObject(resp, "error", cJSON_CreateString("Failed to execute iptables"));
-		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] Failed to execute: %s",__FUNCTION__,__LINE__,cmd);
-	} else {
+	for (int i = 0; i < 3; i++) {
+		const char *chain = chains[i];
+		FILE *fp;
 		cJSON *rules_array = cJSON_CreateArray();
-		char line[1024];
-		while (fgets(line, sizeof(line), fp) != NULL) {
-			// 跳过 -P (policy) 行
-			if (strncmp(line, "-P", 2) == 0) continue;
-			
-			// 去掉换行符
-			line[strcspn(line, "\n")] = 0;
-			WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d] Rule: %s",__FUNCTION__,__LINE__,line);
-			cJSON_AddItemToArray(rules_array, cJSON_CreateString(line));
+
+		snprintf(cmd, sizeof(cmd), "iptables -w -S %s", chain);
+		fp = popen(cmd, "r");
+		if (fp == NULL) {
+			WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] Failed to execute: %s",__FUNCTION__,__LINE__,cmd);
+		} else {
+			char line[1024];
+			while (fgets(line, sizeof(line), fp) != NULL) {
+				// 跳过 -P (policy) 行
+				if (strncmp(line, "-P", 2) == 0) continue;
+				
+				// 去掉换行符
+				line[strcspn(line, "\n")] = 0;
+				WTSL_LOG_DEBUG(MODULE_NAME, "[%s][%d] %s Rule: %s",__FUNCTION__,__LINE__,chain,line);
+				cJSON_AddItemToArray(rules_array, cJSON_CreateString(line));
+			}
+			pclose(fp);
 		}
-		pclose(fp);
-		cJSON_AddItemToObject(resp, "rules", rules_array);
+
+		cJSON_AddItemToObject(resp, chain, rules_array);
 	}
-	
-	cJSON_AddItemToObject(resp, "chain", cJSON_CreateString(chain));
-	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(true));
+
 	
 	const char *json_str = cJSON_Print(resp);
 	size_t json_len = strlen(json_str);
@@ -3079,10 +3079,30 @@ void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserConte
 	const char *action = j_action ? j_action->valuestring : "show";
 	const char *obj_type = j_type ? j_type->valuestring : "qdisc";
 	
-	int ret = tc_handle_request(action, obj_type, root);
+	char err_buf[512];
+	int ret = tc_handle_request(action, obj_type, root, err_buf, sizeof(err_buf));
 	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] tc_handle_request ret=%d",__FUNCTION__,__LINE__,ret);
 	
-	// // 获取当前规则状态（用于响应）
+	cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(ret == 0));
+	if (ret != 0) {
+		const char *err_msg = (err_buf[0] != '\0') ? err_buf : "tc command execution failed";
+		cJSON_AddItemToObject(resp, "error", cJSON_CreateString(err_msg));
+	}
+	
+	const char *json_str = cJSON_Print(resp);
+	size_t json_len = strlen(json_str);
+	WTSL_LOG_INFO(MODULE_NAME, "[%s][%d] QoS POST response len=%zu",__FUNCTION__,__LINE__,json_len);
+	
+	// 安全复制响应
+	if (json_len < 8192) {
+		memcpy((char *)data, json_str, json_len + 1);
+	} else {
+		WTSL_LOG_ERROR(MODULE_NAME, "[%s][%d] JSON response too large: %zu bytes",__FUNCTION__,__LINE__,json_len);
+		memcpy((char *)data, json_str, 8191);
+		((char *)data)[8191] = '\0';
+	}
+	
+	cJSON_free((void *)json_str);
 	// cJSON *j_dev = cJSON_GetObjectItem(root, "device");
 	// const char *dev = j_dev ? j_dev->valuestring : g_state.default_device;
 	
@@ -3161,5 +3181,5 @@ void* wtsl_core_qos_set_rules(void* ph, void *data, unsigned int size, UserConte
 	cJSON_Delete(resp);
 	cJSON_Delete(root);
 	
-	return (void *)"success";
+	return (void *)data;
 }

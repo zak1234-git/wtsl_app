@@ -34,7 +34,7 @@ int qos_toggle_switch(bool enable);
  * @param obj_type: qdisc, class, filter
  * @param params: JSON 参数
  */
-int tc_handle_request(const char *action, const char *obj_type, cJSON *params);
+int tc_handle_request(const char *action, const char *obj_type, cJSON *params, char *err_buf, size_t err_buf_len);
 
 
 /**

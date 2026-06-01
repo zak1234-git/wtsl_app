@@ -67,6 +67,12 @@ void acl_init_state(const char *default_dev) {
  * @brief 构建 iptables 命令
  */
 static int build_iptables_cmd(char *cmd, size_t cmd_size, const char *action, const char *chain, cJSON *params) {
+    cJSON *rule_params = params;
+    cJSON *j_rule = cJSON_GetObjectItemCaseSensitive(params, "rule");
+    if (j_rule && cJSON_IsObject(j_rule)) {
+        rule_params = j_rule;
+    }
+
     const char *flag = "-A";
     if (strcmp(action, "delete") == 0 || strcmp(action, "del") == 0) {
         flag = "-D";
@@ -75,110 +81,94 @@ static int build_iptables_cmd(char *cmd, size_t cmd_size, const char *action, co
     } else if (strcmp(action, "replace") == 0) {
         flag = "-R";
     }
-    
-    // 使用 -w 等待锁，解决 lock file 问题
-    snprintf(cmd, cmd_size, "iptables -w %s %s", flag, chain);
-    
-    // 协议
-    cJSON *j_proto = cJSON_GetObjectItemCaseSensitive(params, "protocol");
-    if (j_proto && cJSON_IsString(j_proto)) {
-        strcat(cmd, " -p ");
-        strcat(cmd, j_proto->valuestring);
+
+    cJSON *j_rule_num = cJSON_GetObjectItemCaseSensitive(params, "rule_num");
+    if (j_rule_num == NULL) {
+        j_rule_num = cJSON_GetObjectItemCaseSensitive(rule_params, "rule_num");
     }
-    
+
+    if (j_rule_num && cJSON_IsNumber(j_rule_num)) {
+        char num_buf[16];
+        snprintf(num_buf, sizeof(num_buf), "%d", j_rule_num->valueint);
+        if (strcmp(action, "replace") == 0) {
+            snprintf(cmd, cmd_size, "iptables -w -R %s %s", chain, num_buf);
+        } else if (strcmp(action, "insert") == 0) {
+            snprintf(cmd, cmd_size, "iptables -w -I %s %s", chain, num_buf);
+        } else if (strcmp(action, "delete") == 0 || strcmp(action, "del") == 0) {
+            snprintf(cmd, cmd_size, "iptables -w -D %s %s", chain, num_buf);
+            return 0;
+        } else {
+            snprintf(cmd, cmd_size, "iptables -w %s %s %s", flag, chain, num_buf);
+        }
+    } else {
+        snprintf(cmd, cmd_size, "iptables -w %s %s", flag, chain);
+    }
+
+    // 协议
+    cJSON *j_proto = cJSON_GetObjectItemCaseSensitive(rule_params, "protocol");
+    const char *proto_str = NULL;
+    if (j_proto && cJSON_IsString(j_proto)) {
+        proto_str = j_proto->valuestring;
+        strcat(cmd, " -p ");
+        strcat(cmd, proto_str);
+    }
+
     // 源地址
-    cJSON *j_src = cJSON_GetObjectItemCaseSensitive(params, "source");
+    cJSON *j_src = cJSON_GetObjectItemCaseSensitive(rule_params, "source");
     if (j_src && cJSON_IsString(j_src)) {
         strcat(cmd, " -s ");
         strcat(cmd, j_src->valuestring);
     }
-    
+
     // 目标地址
-    cJSON *j_dst = cJSON_GetObjectItemCaseSensitive(params, "destination");
+    cJSON *j_dst = cJSON_GetObjectItemCaseSensitive(rule_params, "destination");
     if (j_dst && cJSON_IsString(j_dst)) {
         strcat(cmd, " -d ");
         strcat(cmd, j_dst->valuestring);
     }
-    
+
     // 入站接口
-    cJSON *j_in = cJSON_GetObjectItemCaseSensitive(params, "in_interface");
+    cJSON *j_in = cJSON_GetObjectItemCaseSensitive(rule_params, "in_interface");
     if (j_in && cJSON_IsString(j_in)) {
         strcat(cmd, " -i ");
         strcat(cmd, j_in->valuestring);
     }
-    
+
     // 出站接口
-    cJSON *j_out = cJSON_GetObjectItemCaseSensitive(params, "out_interface");
+    cJSON *j_out = cJSON_GetObjectItemCaseSensitive(rule_params, "out_interface");
     if (j_out && cJSON_IsString(j_out)) {
         strcat(cmd, " -o ");
         strcat(cmd, j_out->valuestring);
     }
-    
-    // 端口处理（需要先添加 -m tcp 模块）
-    cJSON *j_dport = cJSON_GetObjectItemCaseSensitive(params, "dest_port");
-    cJSON *j_sport = cJSON_GetObjectItemCaseSensitive(params, "source_port");
-    
+
+    // 端口处理（使用对应协议模块）
+    cJSON *j_dport = cJSON_GetObjectItemCaseSensitive(rule_params, "dest_port");
+    cJSON *j_sport = cJSON_GetObjectItemCaseSensitive(rule_params, "source_port");
     if (j_dport || j_sport) {
-        // 添加 tcp 模块支持
-        strcat(cmd, " -m tcp");
-        
+        if (proto_str != NULL && strcmp(proto_str, "udp") == 0) {
+            strcat(cmd, " -m udp");
+        } else {
+            strcat(cmd, " -m tcp");
+        }
+
         if (j_sport && cJSON_IsString(j_sport)) {
             strcat(cmd, " --sport ");
             strcat(cmd, j_sport->valuestring);
         }
-        
+
         if (j_dport && cJSON_IsString(j_dport)) {
             strcat(cmd, " --dport ");
             strcat(cmd, j_dport->valuestring);
         }
     }
-    
+
     // 动作目标
-    cJSON *j_target = cJSON_GetObjectItemCaseSensitive(params, "target");
+    cJSON *j_target = cJSON_GetObjectItemCaseSensitive(rule_params, "target");
     if (j_target && cJSON_IsString(j_target)) {
         strcat(cmd, " -j ");
         strcat(cmd, j_target->valuestring);
     }
-    
-    // 行号 (用于 replace/delete)
-    cJSON *j_rule_num = cJSON_GetObjectItemCaseSensitive(params, "rule_num");
-    if (j_rule_num && cJSON_IsNumber(j_rule_num)) {
-        char num_buf[16];
-        snprintf(num_buf, sizeof(num_buf), "%d", j_rule_num->valueint);
-        // 插入到 chain 后面
-        char temp[ACL_MAX_CMD_LEN];
-        snprintf(temp, sizeof(temp), "iptables -w %s %s %s", flag, chain, num_buf);
-        if (strcmp(action, "replace") == 0) {
-            // replace 需要特殊处理
-            snprintf(cmd, cmd_size, "iptables -w -R %s %s", chain, num_buf);
-            // 重新添加其他参数
-            if (j_proto && cJSON_IsString(j_proto)) {
-                strcat(cmd, " -p "); strcat(cmd, j_proto->valuestring);
-            }
-            if (j_src && cJSON_IsString(j_src)) {
-                strcat(cmd, " -s "); strcat(cmd, j_src->valuestring);
-            }
-            if (j_dst && cJSON_IsString(j_dst)) {
-                strcat(cmd, " -d "); strcat(cmd, j_dst->valuestring);
-            }
-            if (j_in && cJSON_IsString(j_in)) {
-                strcat(cmd, " -i "); strcat(cmd, j_in->valuestring);
-            }
-            if (j_out && cJSON_IsString(j_out)) {
-                strcat(cmd, " -o "); strcat(cmd, j_out->valuestring);
-            }
-            if (j_sport && cJSON_IsString(j_sport)) {
-                strcat(cmd, " --sport "); strcat(cmd, j_sport->valuestring);
-            }
-            if (j_dport && cJSON_IsString(j_dport)) {
-                strcat(cmd, " --dport "); strcat(cmd, j_dport->valuestring);
-            }
-            if (j_target && cJSON_IsString(j_target)) {
-                strcat(cmd, " -j "); strcat(cmd, j_target->valuestring);
-            }
-        }
-    }
-    
+
     return 0;
 }
 
@@ -238,14 +228,6 @@ int acl_handle_request(const char *action, const char *chain, cJSON *params, cJS
     int ret = 0;
     
     WTSL_LOG_INFO(MODULE_NAME, "[ACL] action=%s, chain=%s", action, chain);
-    
-    // 限制只能操作 FORWARD 链
-    if (strcmp(chain, "FORWARD") != 0) {
-        WTSL_LOG_WARNING(MODULE_NAME, "[ACL] Only FORWARD chain is supported, ignoring chain: %s", chain);
-        cJSON_AddItemToObject(resp, "success", cJSON_CreateBool(false));
-        cJSON_AddItemToObject(resp, "error", cJSON_CreateString("Only FORWARD chain is supported"));
-        return -1;
-    }
     
     // 特殊处理：list 动作
     if (strcmp(action, "list") == 0 || strcmp(action, "get") == 0) {

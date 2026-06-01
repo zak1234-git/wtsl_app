@@ -31,28 +31,55 @@ void qos_init_state(const char *default_dev) {
  * @param cmd 要执行的完整 tc 命令
  * @return 0 表示成功，-1 表示失败
  */
-int ex_command(const char *cmd) {
+static int ex_command(const char *cmd, char *out_buf, size_t out_len) {
+    char cmd_with_redirect[QOS_MAX_CMD_LEN + 8];
     WTSL_LOG_DEBUG(MODULE_NAME, "[EXEC] %s", cmd);
-    
-    // 使用 popen 执行命令，"r" 表示读取输出 (主要用于 show 命令)
-    FILE *fp = popen(cmd, "r");
-    if (fp == NULL) {
-        WTSL_LOG_ERROR(MODULE_NAME, "popen failed");
+
+    if (out_buf && out_len > 0) {
+        out_buf[0] = '\0';
+    }
+
+    if (snprintf(cmd_with_redirect, sizeof(cmd_with_redirect), "%s 2>&1", cmd) >= (int)sizeof(cmd_with_redirect)) {
+        WTSL_LOG_ERROR(MODULE_NAME, "[TC Error] Command too long");
+        if (out_buf && out_len > 0) {
+            snprintf(out_buf, out_len, "Command too long");
+        }
         return -1;
     }
-    
-    // 如果是 show 命令，读取并打印输出 (实际项目中可存入缓冲区返回给前端)
+
+    // 使用 popen 执行命令，"r" 表示读取输出
+    FILE *fp = popen(cmd_with_redirect, "r");
+    if (fp == NULL) {
+        WTSL_LOG_ERROR(MODULE_NAME, "popen failed");
+        if (out_buf && out_len > 0) {
+            snprintf(out_buf, out_len, "popen failed");
+        }
+        return -1;
+    }
+
     char buffer[256];
+    size_t used = 0;
     while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-        // 这里简单打印到 stdout，生产环境可收集到字符串
+        if (out_buf && out_len > 1) {
+            size_t len = strlen(buffer);
+            if (used + len < out_len) {
+                memcpy(out_buf + used, buffer, len);
+                used += len;
+                out_buf[used] = '\0';
+            }
+        }
         if (strstr(cmd, "show") || strstr(cmd, "-L")) {
             WTSL_LOG_DEBUG(MODULE_NAME, "[TC-OUT] %s", buffer);
         }
     }
-    
+
     int status = pclose(fp);
-    if (WEXITSTATUS(status) != 0) {
-        WTSL_LOG_ERROR(MODULE_NAME, "[TC Error] Command failed with exit code %d", WEXITSTATUS(status));
+    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        WTSL_LOG_ERROR(MODULE_NAME, "[TC Error] Command failed with exit code %d", exit_code);
+        if (out_buf && out_len > 0 && out_buf[0] == '\0') {
+            snprintf(out_buf, out_len, "Command failed with exit code %d", exit_code);
+        }
         return -1;
     }
     return 0;
@@ -70,10 +97,14 @@ void record_rule(const char *cmd) {
     WTSL_LOG_DEBUG(MODULE_NAME, "[SNAPSHOT] Recorded #%d\n", g_state.snapshot_count);
 }
 
-int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
+int tc_handle_request(const char *action, const char *obj_type, cJSON *params, char *err_buf, size_t err_buf_len) {
     char cmd[QOS_MAX_CMD_LEN];
     cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(params, "device");
     const char *dev = (j_dev && cJSON_IsString(j_dev)) ? j_dev->valuestring : g_state.default_device;
+
+    if (err_buf && err_buf_len > 0) {
+        err_buf[0] = '\0';
+    }
 
     WTSL_LOG_INFO(MODULE_NAME, "[TC] action=%s, obj_type=%s, dev=%s", action, obj_type, dev);
 
@@ -117,6 +148,20 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
         } else if (j_parent) {
             strcat(cmd, " parent ");
             strcat(cmd, j_parent->valuestring);
+        } else if (strcmp(obj_type, "class") == 0 && j_classid && cJSON_IsString(j_classid)) {
+            const char *classid_str = j_classid->valuestring;
+            const char *sep = strchr(classid_str, ':');
+            if (sep && sep != classid_str) {
+                char parent_buf[32];
+                size_t major_len = (size_t)(sep - classid_str);
+                if (major_len < sizeof(parent_buf) - 3) {
+                    memcpy(parent_buf, classid_str, major_len);
+                    parent_buf[major_len] = '\0';
+                    strcat(parent_buf, ":0");
+                    strcat(cmd, " parent ");
+                    strcat(cmd, parent_buf);
+                }
+            }
         }
         
         // classid 参数（class 必需，在 handle 之前）
@@ -133,15 +178,10 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
             strcat(cmd, j_handle->valuestring);
         }
 
-        if (j_kind && (strcmp(action, "add") == 0 || strcmp(action, "replace") == 0)) {
-            strcat(cmd, " ");
-            strcat(cmd, j_kind->valuestring);
-        }
-        
-        // filter 特有参数：protocol 和 prio 在 kind 之后
+        // filter 特有参数：protocol 和 prio 在 kind 之前
         if (strcmp(obj_type, "filter") == 0) {
             if (j_protocol) {
-                strcat(cmd, " ");
+                strcat(cmd, " protocol ");
                 strcat(cmd, j_protocol->valuestring);
             }
             if (j_prio) {
@@ -149,6 +189,11 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
                 snprintf(prio_buf, sizeof(prio_buf), " prio %d", j_prio->valueint);
                 strcat(cmd, prio_buf);
             }
+        }
+
+        if (j_kind && (strcmp(action, "add") == 0 || strcmp(action, "replace") == 0 || strcmp(action, "change") == 0)) {
+            strcat(cmd, " ");
+            strcat(cmd, j_kind->valuestring);
         }
 
         // 处理动态 Args
@@ -188,7 +233,7 @@ int tc_handle_request(const char *action, const char *obj_type, cJSON *params) {
 
     WTSL_LOG_INFO(MODULE_NAME, "[TC] CMD: %s", cmd);
     
-    int ret = ex_command(cmd);
+    int ret = ex_command(cmd, err_buf, err_buf_len);
     if (ret == 0 && (strcmp(action, "add") == 0 || strcmp(action, "replace") == 0)) {
         record_rule(cmd);
     }
@@ -283,7 +328,7 @@ int iptables_handle_request(const char *action, const char *chain, cJSON *params
         }
     }
 
-    int ret = ex_command(cmd);
+    int ret = ex_command(cmd, NULL, 0);
     if (ret == 0 && (strcmp(action, "add") == 0 || strcmp(action, "insert") == 0 || strcmp(action, "replace") == 0)) {
         record_rule(cmd);
     }
